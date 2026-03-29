@@ -157,8 +157,8 @@ impl Pipeline {
             cache: None,
         });
 
-        let star_shader = device
-            .create_shader_module(wgpu::include_wgsl!("../../shaders/star_shader.wgsl"));
+        let star_shader =
+            device.create_shader_module(wgpu::include_wgsl!("../../shaders/star_shader.wgsl"));
 
         let star_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Star Pipeline Layout"),
