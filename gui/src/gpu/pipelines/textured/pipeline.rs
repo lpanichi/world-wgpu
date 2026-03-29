@@ -201,7 +201,7 @@ impl Pipeline {
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: format,
+                    format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -254,7 +254,7 @@ impl Pipeline {
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: format,
+                    format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -332,7 +332,7 @@ impl Pipeline {
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: format,
+                    format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -545,7 +545,7 @@ impl Pipeline {
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: format,
+                    format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -574,13 +574,14 @@ impl Pipeline {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         _bounds: &iced::Rectangle,
         viewport: &shader::Viewport,
-        triangles: &Vec<TextureVertex>,
+        triangles: &[TextureVertex],
         camera: &Camera,
         satellite_position: [f32; 3],
     ) {
@@ -604,7 +605,7 @@ impl Pipeline {
                 view_formats: &[],
             }));
         }
-        let buffer_size = triangles.len() * std::mem::size_of::<TextureVertex>();
+        let buffer_size = std::mem::size_of_val(triangles);
         self.vertices = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Triangle buffer"),
             size: buffer_size as u64,
@@ -620,12 +621,11 @@ impl Pipeline {
             satellite_position[2],
         ));
 
-        let satellite_uniforms = SatelliteUniforms {
-            view_proj: camera.build_view_projection_matrix().into(),
-            model: model.into(),
-        };
+        let mut satellite_uniforms = SatelliteUniforms::new();
+        satellite_uniforms.view_proj = camera.build_view_projection_matrix().into();
+        satellite_uniforms.model = model.into();
 
-        queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(&triangles));
+        queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(triangles));
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
         queue.write_buffer(
             &self.satellite_uniforms,
@@ -638,7 +638,7 @@ impl Pipeline {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
-        triangles: &Vec<TextureVertex>,
+        triangles: &[TextureVertex],
         clip_bounds: &Rectangle<u32>,
     ) {
         let depth_view = self

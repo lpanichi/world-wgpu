@@ -2,8 +2,8 @@
 pub fn linspace(start: f32, end: f32, n_steps: usize) -> Vec<f32> {
     let barrier_length = (end - start) / (n_steps - 1) as f32;
     let mut poles = vec![0.0; n_steps];
-    for i in 0..n_steps {
-        poles[i] = i as f32 * barrier_length + start;
+    for (i, p) in poles.iter_mut().enumerate().take(n_steps) {
+        *p = i as f32 * barrier_length + start;
     }
     poles
 }

@@ -56,17 +56,12 @@ impl Textured {
     }
 
     fn handle_event(&mut self, event: iced::event::Event) {
-        if let iced::event::Event::Mouse(mouse_event) = event {
-            match mouse_event {
-                iced::mouse::Event::WheelScrolled { delta } => {
-                    let amount = match delta {
-                        iced::mouse::ScrollDelta::Lines { y, .. } => y * 0.5,
-                        iced::mouse::ScrollDelta::Pixels { y, .. } => y * 0.01,
-                    };
-                    self.program.camera.dolly(amount);
-                }
-                _ => (),
-            }
+        if let iced::event::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) = event {
+            let amount = match delta {
+                iced::mouse::ScrollDelta::Lines { y, .. } => y * 0.5,
+                iced::mouse::ScrollDelta::Pixels { y, .. } => y * 0.01,
+            };
+            self.program.camera.dolly(amount);
         }
     }
 

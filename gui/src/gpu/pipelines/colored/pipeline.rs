@@ -62,7 +62,7 @@ impl Pipeline {
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: format,
+                    format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -78,23 +78,23 @@ impl Pipeline {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        triangles: &Vec<ColorVertex>,
+        triangles: &[ColorVertex],
     ) {
-        let buffer_size = triangles.len() * std::mem::size_of::<ColorVertex>();
+        let buffer_size = std::mem::size_of_val(triangles);
         self.buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Triangle buffer"),
             size: buffer_size as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&triangles));
+        queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(triangles));
     }
 
     pub fn render(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
-        triangles: &Vec<ColorVertex>,
+        triangles: &[ColorVertex],
     ) {
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Render Pass"),

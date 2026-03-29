@@ -7,9 +7,7 @@ pub struct Program {
 
 impl Program {
     pub fn new(triangles: Vec<ColorVertex>) -> Self {
-        Self {
-            triangles: triangles,
-        }
+        Self { triangles }
     }
 }
 

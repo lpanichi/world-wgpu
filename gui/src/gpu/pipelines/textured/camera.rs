@@ -14,8 +14,8 @@ pub struct Camera {
 impl Camera {
     pub fn new(eye: Point3<f32>, target: Point3<f32>, width: f32, height: f32) -> Self {
         Self {
-            eye: eye,
-            target: target,
+            eye,
+            target,
             up: Vector3::y_axis(),
             aspect: width / height,
             fovy: 45.0,
@@ -27,8 +27,7 @@ impl Camera {
     pub fn build_view_projection_matrix(&self) -> Matrix4<f32> {
         let view = Isometry3::look_at_rh(&self.eye, &self.target, &self.up);
         let proj = Perspective3::new(self.aspect, self.fovy.to_radians(), self.znear, self.zfar);
-        let model_view_projection = proj.into_inner() * view.to_homogeneous();
-        model_view_projection.into()
+        proj.into_inner() * view.to_homogeneous()
     }
 
     pub fn change_aspect(&mut self, width: f32, heigth: f32) {

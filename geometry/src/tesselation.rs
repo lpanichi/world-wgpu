@@ -11,20 +11,18 @@ pub fn sphere_base() -> Vec<NalgebraTriangle> {
 
     let base = Vector3::new(1.0, 0.0, 0.0);
     let second_base =
-        Rotation3::from_axis_angle(&Vector3::y_axis().into(), 2. * std::f32::consts::PI / 3.)
-            * base;
-    let third_base =
-        Rotation3::from_axis_angle(&Vector3::y_axis().into(), 2. * std::f32::consts::PI / 3.)
-            * second_base;
+        Rotation3::from_axis_angle(&Vector3::y_axis(), 2. * std::f32::consts::PI / 3.) * base;
+    let third_base = Rotation3::from_axis_angle(&Vector3::y_axis(), 2. * std::f32::consts::PI / 3.)
+        * second_base;
 
-    let mut triangles = Vec::with_capacity(6);
-    triangles.push([north_pole, base, second_base]);
-    triangles.push([north_pole, second_base, third_base]);
-    triangles.push([north_pole, third_base, base]);
-
-    triangles.push([base, south_pole, second_base]);
-    triangles.push([second_base, south_pole, third_base]);
-    triangles.push([third_base, south_pole, base]);
+    let triangles = vec![
+        [north_pole, base, second_base],
+        [north_pole, second_base, third_base],
+        [north_pole, third_base, base],
+        [base, south_pole, second_base],
+        [second_base, south_pole, third_base],
+        [third_base, south_pole, base],
+    ];
 
     triangles
 }
@@ -36,11 +34,12 @@ pub fn divide_triangle(triangle: &NalgebraTriangle) -> Vec<NalgebraTriangle> {
     let mid_p2_p3 = p2.lerp(&p3, 0.5);
     let mid_p3_p1 = p3.lerp(&p1, 0.5);
 
-    let mut triangles = Vec::with_capacity(4);
-    triangles.push([p1, mid_p1_p2, mid_p3_p1]);
-    triangles.push([mid_p1_p2, p2, mid_p2_p3]);
-    triangles.push([mid_p3_p1, mid_p2_p3, p3]);
-    triangles.push([mid_p1_p2, mid_p2_p3, mid_p3_p1]);
+    let triangles = vec![
+        [p1, mid_p1_p2, mid_p3_p1],
+        [mid_p1_p2, p2, mid_p2_p3],
+        [mid_p3_p1, mid_p2_p3, p3],
+        [mid_p1_p2, mid_p2_p3, mid_p3_p1],
+    ];
     triangles
 }
 
@@ -149,7 +148,7 @@ fn get_midpoint_index(
     index
 }
 
-fn orient_triangles_outward(triangles: &mut Vec<NalgebraTriangle>) {
+fn orient_triangles_outward(triangles: &mut [NalgebraTriangle]) {
     for tri in triangles.iter_mut() {
         let edge1 = tri[1] - tri[0];
         let edge2 = tri[2] - tri[0];
@@ -162,7 +161,7 @@ fn orient_triangles_outward(triangles: &mut Vec<NalgebraTriangle>) {
     }
 }
 
-fn normalize_triangles(triangles: &mut Vec<NalgebraTriangle>) {
+fn normalize_triangles(triangles: &mut [NalgebraTriangle]) {
     triangles.iter_mut().for_each(|t| {
         t[0].normalize_mut();
         t[1].normalize_mut();

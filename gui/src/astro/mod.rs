@@ -19,7 +19,7 @@ impl Astral {
     ///
     /// - `day_of_year`: 1..365
     /// - `hour`: 0..24
-    /// Returns (azimuth, elevation) in radians.
+    /// - Returns (azimuth, elevation) in radians.
     pub fn sun_position(&self, day_of_year: u32, hour: f64) -> (f64, f64) {
         // Normalize day and time
         let nominal = (day_of_year as f64 - 1.0) / 365.0;
@@ -101,7 +101,7 @@ impl Astral {
         arg_perigee_deg: f64,
         true_anomaly_deg: f64,
     ) -> Option<([f64; 3], [f64; 3])> {
-        if eccentricity < 0.0 || eccentricity >= 1.0 {
+        if !(0.0..1.0).contains(&eccentricity) {
             return None;
         }
 

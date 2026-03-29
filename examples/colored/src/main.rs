@@ -33,14 +33,12 @@ impl Colored {
 impl Default for Colored {
     fn default() -> Self {
         let triangles = get_base_triangle();
-        let triangles = divide_triangle(triangles.get(0).unwrap());
+        let triangles = divide_triangle(triangles.first().unwrap());
         let triangles = into_colored_vertex(triangles);
         println!("{:#?}", triangles);
 
         Self {
-            program: program::Program {
-                triangles: triangles,
-            },
+            program: program::Program::new(triangles),
         }
     }
 }

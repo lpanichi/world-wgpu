@@ -27,12 +27,12 @@ impl TextureVertex {
     pub fn new(point: Point3<f32>, texture_coords: [f32; 2]) -> Self {
         Self {
             position: point.into(),
-            texture_coords: texture_coords,
+            texture_coords,
         }
     }
 }
 
-fn unwrap_triangle_uvs(mut uvs: [f32; 3]) -> [f32; 3] {
+fn unwrap_triangle_uvs(uvs: [f32; 3]) -> [f32; 3] {
     let mut best = uvs;
     let mut best_span = f32::INFINITY;
 

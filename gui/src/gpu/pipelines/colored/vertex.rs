@@ -30,8 +30,8 @@ fn draw_color() -> [f32; 3] {
 pub fn into_colored_vertex(triangles: Vec<NalgebraTriangle>) -> Vec<ColorVertex> {
     triangles
         .iter()
-        .map(|t| (t, draw_color()))
-        .map(|(t, c)| {
+        .flat_map(|t| {
+            let c = draw_color();
             [
                 ColorVertex {
                     position: t[0].into(),
@@ -47,6 +47,5 @@ pub fn into_colored_vertex(triangles: Vec<NalgebraTriangle>) -> Vec<ColorVertex>
                 },
             ]
         })
-        .flat_map(|f| f)
         .collect()
 }
