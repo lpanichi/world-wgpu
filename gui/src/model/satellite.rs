@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Satellite {
     pub name: String,
     pub phase_offset_rad: f32,

@@ -1,4 +1,6 @@
-use gui::gpu::pipelines::planet::{camera::Camera, pipeline::Pipeline, satellite::SatelliteRenderMode};
+use gui::gpu::pipelines::planet::{
+    camera::Camera, pipeline::Pipeline, satellite::SatelliteRenderMode,
+};
 use gui::model::Simulation;
 use iced::{Rectangle, mouse, wgpu, widget::shader};
 use std::sync::Arc;
@@ -8,11 +10,33 @@ pub struct Program {
     pub camera: Camera,
     pub start_time: std::time::Instant,
     pub satellite_mode: SatelliteRenderMode,
+    pub paused: bool,
+    pub paused_elapsed: f32,
 }
 
 impl Program {
     pub fn elapsed_time(&self) -> f32 {
-        self.start_time.elapsed().as_secs_f32()
+        if self.paused {
+            self.paused_elapsed
+        } else {
+            self.paused_elapsed + self.start_time.elapsed().as_secs_f32()
+        }
+    }
+
+    pub fn toggle_pause(&mut self) {
+        if self.paused {
+            self.start_time = std::time::Instant::now();
+            self.paused = false;
+        } else {
+            self.paused_elapsed = self.elapsed_time();
+            self.paused = true;
+        }
+    }
+
+    pub fn reset_time(&mut self) {
+        self.start_time = std::time::Instant::now();
+        self.paused_elapsed = 0.0;
+        self.paused = false;
     }
 }
 

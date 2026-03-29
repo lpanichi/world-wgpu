@@ -1,7 +1,7 @@
 use super::Satellite;
 use nalgebra::{Rotation3, Vector3};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Orbit {
     pub semi_major_axis: f32,
     pub period_seconds: f32,

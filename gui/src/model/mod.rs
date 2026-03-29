@@ -43,7 +43,7 @@ impl GroundStation {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Simulation {
     pub orbits: Vec<Orbit>,
     pub ground_stations: Vec<GroundStation>,
