@@ -1,0 +1,89 @@
+# [package]
+# name = "world-wgpu"
+# description = ""
+# version.workspace = true
+# edition.workspace = true
+# authors.workspace = true
+# license.workspace = true
+# repository.workspace = true
+# homepage.workspace = true
+# categories.workspace = true
+# keywords.workspace = true
+# rust-version.workspace = true
+
+# [lints]
+# workspace = true
+
+[workspace]
+resolver = "3"
+members = ["gui", "geometry", "examples/*"]
+
+[package]
+name = "world-wgpu"
+version = "0.1.0"
+edition = "2024"
+authors = [""]
+license = "Proprietary"
+repository = ""
+homepage = ""
+categories = ["gui", "space"]
+keywords = ["gui", "space"]
+rust-version = "1.93"
+
+[workspace.package]
+version = "0.1.0"
+authors = [""]
+edition = "2024"
+license = "Proprietary"
+repository = ""
+homepage = ""
+categories = ["gui", "space"]
+keywords = ["gui", "space"]
+rust-version = "1.93"
+
+[workspace.dependencies]
+gui = { version = "0.1.0", path = "gui" }
+geometry = { version = "0.1.0", path = "geometry" }
+
+iced = "0.14.0"
+winit = { version = "0.30.12", features = ["rwh_05"] }
+env_logger = "0.11.8"
+log = "0.4.29"
+pollster = "0.4.0"
+# wgpu = "28.0.0"
+bytemuck = { version = "1.25.0", features = ["derive"] }
+anyhow = "1.0.100"
+assertor = "0.0.4"
+nalgebra = "0.34.1"
+mockall = "0.14.0"
+image = "0.25.9"
+rand = "0.9.2"
+
+[dependencies]
+gui = { path = "gui" }
+geometry = { path = "geometry" }
+
+iced = "0.14.0"
+winit = { version = "0.30.12", features = ["rwh_05"] }
+env_logger = "0.11.8"
+log = "0.4.29"
+pollster = "0.4.0"
+# wgpu = "28.0.0"
+bytemuck = { version = "1.25.0", features = ["derive"] }
+anyhow = "1.0.100"
+assertor = "0.0.4"
+nalgebra = "0.34.1"
+mockall = "0.14.0"
+image = "0.25.9"
+rand = "0.9.2"
+
+[[example]]
+name = "colored"
+path = "examples/colored/src/main.rs"
+
+[[example]]
+name = "textured"
+path = "examples/textured/src/main.rs"
+
+[workspace.lints.clippy]
+large-enum-variant = "allow"

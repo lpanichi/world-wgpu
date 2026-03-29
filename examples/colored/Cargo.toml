@@ -1,0 +1,13 @@
+[package]
+name = "colored"
+version = "0.1.0"
+authors = [""]
+edition = "2024"
+publish = false
+
+[dependencies]
+geometry.workspace = true
+gui.workspace = true
+iced.workspace = true
+nalgebra.workspace = true
+bytemuck.workspace = true
