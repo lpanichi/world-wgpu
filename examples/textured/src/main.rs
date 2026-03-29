@@ -6,6 +6,7 @@ use iced::{
     Length::Fill,
     Theme,
     keyboard::{self, Key},
+    time::{self, milliseconds},
     widget::{button, center, column, row, shader},
 };
 
@@ -15,6 +16,7 @@ mod program;
 enum Message {
     KeyboardEvent(keyboard::Event),
     Event(iced::event::Event),
+    Tick,
 }
 
 struct Textured {
@@ -26,6 +28,9 @@ impl Textured {
         match message {
             Message::KeyboardEvent(event) => self.handle_keyboard_event(event),
             Message::Event(event) => self.handle_event(event),
+            Message::Tick => {
+                // Nothing needed; redraw is triggered by the timer tick
+            }
         }
     }
 
@@ -84,6 +89,7 @@ impl Default for Textured {
             program: program::Program {
                 simulation: std::sync::Arc::new(simulation),
                 camera,
+                start_time: std::time::Instant::now(),
             },
         }
     }
@@ -95,6 +101,7 @@ fn main() -> iced::Result {
             iced::Subscription::batch([
                 iced::keyboard::listen().map(Message::KeyboardEvent),
                 iced::event::listen().map(Message::Event),
+                time::every(milliseconds(16)).map(|_| Message::Tick),
             ])
         })
         .theme(Theme::KanagawaDragon)

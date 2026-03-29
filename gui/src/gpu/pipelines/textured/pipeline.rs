@@ -6,6 +6,7 @@ use iced::{
     },
     widget::shader,
 };
+use nalgebra::Matrix4;
 
 use crate::gpu::pipelines::textured::{
     camera::Camera, texture, uniforms::Uniforms, vertex::TextureVertex,
@@ -31,6 +32,22 @@ impl TrajectoryVertex {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct SatelliteUniforms {
+    view_proj: [[f32; 4]; 4],
+    model: [[f32; 4]; 4],
+}
+
+impl SatelliteUniforms {
+    fn new() -> Self {
+        Self {
+            view_proj: nalgebra::Matrix4::identity().into(),
+            model: nalgebra::Matrix4::identity().into(),
+        }
+    }
+}
+
 pub struct Pipeline {
     vertices: Buffer,
     texture_bind_group: BindGroup,
@@ -41,6 +58,13 @@ pub struct Pipeline {
     trajectory_pipeline: RenderPipeline,
     trajectory_buffer: Buffer,
     trajectory_count: u32,
+    satellite_pipeline: RenderPipeline,
+    satellite_buffer: Buffer,
+    satellite_count: u32,
+    satellite_uniforms: Buffer,
+    satellite_uniforms_bind_group: BindGroup,
+    depth_texture: Option<wgpu::Texture>,
+    depth_size: (u32, u32),
 }
 
 impl Pipeline {
@@ -160,7 +184,13 @@ impl Pipeline {
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth24Plus,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -207,7 +237,13 @@ impl Pipeline {
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth24Plus,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Always,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -279,7 +315,13 @@ impl Pipeline {
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth24Plus,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -287,6 +329,219 @@ impl Pipeline {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &trajectory_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+            cache: None,
+        });
+
+        let cube_vertices: Vec<TrajectoryVertex> = vec![
+            // front
+            TrajectoryVertex {
+                position: [-0.1, -0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, -0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, 0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [-0.1, -0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, 0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [-0.1, 0.1, 0.1],
+            },
+            // back
+            TrajectoryVertex {
+                position: [-0.1, -0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, 0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, -0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [-0.1, -0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [-0.1, 0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, 0.1, -0.1],
+            },
+            // top
+            TrajectoryVertex {
+                position: [-0.1, 0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [-0.1, 0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, 0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [-0.1, 0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, 0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, 0.1, -0.1],
+            },
+            // bottom
+            TrajectoryVertex {
+                position: [-0.1, -0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, -0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, -0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [-0.1, -0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [-0.1, -0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, -0.1, 0.1],
+            },
+            // left
+            TrajectoryVertex {
+                position: [-0.1, -0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [-0.1, 0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [-0.1, -0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [-0.1, -0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [-0.1, 0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [-0.1, 0.1, 0.1],
+            },
+            // right
+            TrajectoryVertex {
+                position: [0.1, -0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, -0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, 0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, -0.1, -0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, 0.1, 0.1],
+            },
+            TrajectoryVertex {
+                position: [0.1, 0.1, -0.1],
+            },
+        ];
+
+        let satellite_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Satellite Buffer"),
+            size: (std::mem::size_of::<TrajectoryVertex>() * cube_vertices.len()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        queue.write_buffer(&satellite_buffer, 0, bytemuck::cast_slice(&cube_vertices));
+
+        let satellite_count = cube_vertices.len() as u32;
+
+        let satellite_uniforms = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Satellite Uniforms"),
+            size: std::mem::size_of::<SatelliteUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let satellite_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Satellite Uniforms bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let satellite_uniforms_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Satellite Uniforms bind group"),
+            layout: &satellite_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: satellite_uniforms.as_entire_binding(),
+            }],
+        });
+
+        let satellite_shader =
+            device.create_shader_module(wgpu::include_wgsl!("../../shaders/satellite_shader.wgsl"));
+
+        let satellite_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Satellite Pipeline Layout"),
+                bind_group_layouts: &[&satellite_bind_group_layout],
+                ..Default::default()
+            });
+
+        let satellite_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("Satellite Pipeline"),
+            layout: Some(&satellite_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &satellite_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[TrajectoryVertex::desc()],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth24Plus,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &satellite_shader,
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
@@ -309,6 +564,13 @@ impl Pipeline {
             trajectory_pipeline,
             trajectory_buffer,
             trajectory_count,
+            satellite_pipeline,
+            satellite_buffer,
+            satellite_count,
+            satellite_uniforms,
+            satellite_uniforms_bind_group,
+            depth_texture: None,
+            depth_size: (0, 0),
         }
     }
 
@@ -317,10 +579,31 @@ impl Pipeline {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         _bounds: &iced::Rectangle,
-        _viewport: &shader::Viewport,
+        viewport: &shader::Viewport,
         triangles: &Vec<TextureVertex>,
         camera: &Camera,
+        satellite_position: [f32; 3],
     ) {
+        let width = viewport.physical_width();
+        let height = viewport.physical_height();
+
+        if self.depth_size != (width, height) {
+            self.depth_size = (width, height);
+            self.depth_texture = Some(device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Depth Texture"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth24Plus,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            }));
+        }
         let buffer_size = triangles.len() * std::mem::size_of::<TextureVertex>();
         self.vertices = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Triangle buffer"),
@@ -331,8 +614,24 @@ impl Pipeline {
 
         let uniforms = Uniforms::new(camera);
 
+        let model = Matrix4::new_translation(&nalgebra::Vector3::new(
+            satellite_position[0],
+            satellite_position[1],
+            satellite_position[2],
+        ));
+
+        let satellite_uniforms = SatelliteUniforms {
+            view_proj: camera.build_view_projection_matrix().into(),
+            model: model.into(),
+        };
+
         queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(&triangles));
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
+        queue.write_buffer(
+            &self.satellite_uniforms,
+            0,
+            bytemuck::bytes_of(&satellite_uniforms),
+        );
     }
 
     pub fn render(
@@ -342,6 +641,11 @@ impl Pipeline {
         triangles: &Vec<TextureVertex>,
         clip_bounds: &Rectangle<u32>,
     ) {
+        let depth_view = self
+            .depth_texture
+            .as_ref()
+            .map(|tex| tex.create_view(&wgpu::TextureViewDescriptor::default()));
+
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -353,7 +657,16 @@ impl Pipeline {
                     store: wgpu::StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: depth_view.as_ref().map(|view| {
+                wgpu::RenderPassDepthStencilAttachment {
+                    view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }
+            }),
             timestamp_writes: None,
             occlusion_query_set: None,
         });
@@ -369,17 +682,22 @@ impl Pipeline {
         render_pass.set_pipeline(&self.star_pipeline);
         render_pass.draw(0..3, 0..1);
 
-        render_pass.set_pipeline(&self.trajectory_pipeline);
-        render_pass.set_bind_group(0, &self.uniforms_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.trajectory_buffer.slice(..));
-        render_pass.draw(0..self.trajectory_count, 0..1);
-
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
         render_pass.set_bind_group(1, &self.uniforms_bind_group, &[]);
 
         render_pass.set_vertex_buffer(0, self.vertices.slice(..));
         render_pass.draw(0..triangles.len() as u32, 0..1);
+
+        render_pass.set_pipeline(&self.trajectory_pipeline);
+        render_pass.set_bind_group(0, &self.uniforms_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.trajectory_buffer.slice(..));
+        render_pass.draw(0..self.trajectory_count, 0..1);
+
+        render_pass.set_pipeline(&self.satellite_pipeline);
+        render_pass.set_bind_group(0, &self.satellite_uniforms_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.satellite_buffer.slice(..));
+        render_pass.draw(0..self.satellite_count, 0..1);
     }
 }
 
