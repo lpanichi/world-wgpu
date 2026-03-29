@@ -1,6 +1,6 @@
 use gui::gpu::pipelines::planet::camera::Camera;
 use gui::gpu::pipelines::planet::satellite::SatelliteRenderMode;
-use gui::model::{Orbit, Satellite, Simulation};
+use gui::model::{GroundStation, Orbit, Satellite, Simulation};
 use iced::{
     Alignment::Center,
     Element,
@@ -105,6 +105,8 @@ impl Default for Textured {
                     .add_satellite(Satellite::builder("Sat-3").phase_offset(2.0).build())
                     .build(),
             )
+            .add_ground_station(GroundStation::new("Station A", 30.0, 10.0))
+            .add_ground_station(GroundStation::new("Station B", -20.0, 100.0))
             .build();
 
         let camera = Camera::new([0., 6., -15.].into(), [0., 0., 0.].into(), 200., 200.);

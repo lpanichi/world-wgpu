@@ -6,7 +6,7 @@ use iced::wgpu::{
     BufferDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderStages, TextureFormat,
 };
 
-const MAX_SATELLITES: usize = 32;
+const MAX_SATELLITES: usize = 64;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -361,7 +361,14 @@ impl SatellitePipeline {
         model: &Simulation,
         elapsed: f32,
     ) {
-        let satellite_models = model.satellite_models(elapsed);
+        let mut satellite_models = model.satellite_models(elapsed);
+        let station_models = model.ground_station_models();
+        let station_count = station_models
+            .len()
+            .min(MAX_SATELLITES - satellite_models.len());
+
+        satellite_models.extend(station_models.into_iter().take(station_count));
+
         let instances = satellite_models.len().min(MAX_SATELLITES);
         self.satellite_instances = instances as u32;
 
@@ -376,30 +383,15 @@ impl SatellitePipeline {
         uniforms.camera_up = [camera_up.x, camera_up.y, camera_up.z, 0.0];
 
         uniforms.satellite_meta[0] = self.satellite_instances;
+        uniforms.satellite_meta[1] = satellite_models.len() as u32;
+        uniforms.satellite_meta[2] = station_count as u32;
 
-        match self.mode {
-            SatelliteRenderMode::Cube => {
-                for (i, model_mat) in satellite_models
-                    .into_iter()
-                    .take(MAX_SATELLITES)
-                    .enumerate()
-                {
-                    uniforms.models[i] = model_mat.into();
-                }
-            }
-            SatelliteRenderMode::Dot => {
-                for (i, pos) in model
-                    .satellite_positions(elapsed)
-                    .into_iter()
-                    .take(MAX_SATELLITES)
-                    .enumerate()
-                {
-                    let translation = nalgebra::Matrix4::new_translation(&nalgebra::Vector3::new(
-                        pos[0], pos[1], pos[2],
-                    ));
-                    uniforms.models[i] = translation.into();
-                }
-            }
+        for (i, model_mat) in satellite_models
+            .into_iter()
+            .take(MAX_SATELLITES)
+            .enumerate()
+        {
+            uniforms.models[i] = model_mat.into();
         }
 
         queue.write_buffer(&self.satellite_uniforms, 0, bytemuck::bytes_of(&uniforms));

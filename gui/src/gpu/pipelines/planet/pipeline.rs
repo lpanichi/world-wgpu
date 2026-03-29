@@ -9,32 +9,13 @@ use iced::{
 
 use crate::gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode};
 use crate::gpu::pipelines::planet::{
-    camera::Camera, texture, uniforms::Uniforms, vertex::TextureVertex,
+    camera::Camera, texture, trajectory::TrajectoryPipeline, uniforms::Uniforms,
+    vertex::TextureVertex,
 };
 
 use crate::model::Simulation;
 
 const ORBIT_SAMPLES: usize = 128;
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct TrajectoryVertex {
-    position: [f32; 3],
-}
-
-impl TrajectoryVertex {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<TrajectoryVertex>() as u64,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[wgpu::VertexAttribute {
-                offset: 0,
-                shader_location: 0,
-                format: wgpu::VertexFormat::Float32x3,
-            }],
-        }
-    }
-}
 
 pub struct Pipeline {
     vertices: Buffer,
@@ -43,10 +24,9 @@ pub struct Pipeline {
     uniforms_bind_group: BindGroup,
     pipeline: RenderPipeline,
     star_pipeline: RenderPipeline,
-    trajectory_pipeline: RenderPipeline,
-    trajectory_buffer: Buffer,
-    trajectory_count: u32,
-    orbit_ranges: Vec<(u32, u32)>,
+    trajectory: TrajectoryPipeline,
+    feature_buffer: Option<Buffer>,
+    feature_ranges: Vec<(u32, u32)>,
     satellite: SatellitePipeline,
     planet_vertices_count: u32,
     depth_texture: Option<wgpu::Texture>,
@@ -59,9 +39,9 @@ impl Pipeline {
         queue: &iced::wgpu::Queue,
         format: iced::wgpu::TextureFormat,
     ) -> Self {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("../../shaders/shader.wgsl"));
+        let shader =
+            device.create_shader_module(wgpu::include_wgsl!("../../shaders/planet_shader.wgsl"));
 
-        // Vertices
         let vertices = device.create_buffer(&BufferDescriptor {
             label: Some("Vertex Buffer"),
             size: std::mem::size_of::<TextureVertex>() as u64,
@@ -69,7 +49,6 @@ impl Pipeline {
             mapped_at_creation: false,
         });
 
-        // Texture
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -86,8 +65,6 @@ impl Pipeline {
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::FRAGMENT,
-                        // This should match the filterable field of the
-                        // corresponding Texture entry above.
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
@@ -103,17 +80,16 @@ impl Pipeline {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture.view), // CHANGED!
+                    resource: wgpu::BindingResource::TextureView(&texture.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&texture.sampler), // CHANGED!
+                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
                 },
             ],
             label: Some("texture_bind_group"),
         });
 
-        // Uniforms
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Uniforms buffer"),
             size: std::mem::size_of::<Uniforms>() as u64,
@@ -145,7 +121,6 @@ impl Pipeline {
             }],
         });
 
-        // Pipeline
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout for planet"),
             bind_group_layouts: &[&texture_bind_group_layout, &uniform_bind_group_layout],
@@ -249,83 +224,7 @@ impl Pipeline {
             cache: None,
         });
 
-        let trajectory_points: Vec<TrajectoryVertex> = (0..128)
-            .map(|i| {
-                let theta = (i as f32) / 128.0 * std::f32::consts::TAU;
-                let radius = 2.7;
-                TrajectoryVertex {
-                    position: [radius * theta.cos(), 0.0, radius * theta.sin()],
-                }
-            })
-            .collect();
-
-        let trajectory_count = trajectory_points.len() as u32;
-        let trajectory_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Trajectory Buffer"),
-            size: (std::mem::size_of::<TrajectoryVertex>() * trajectory_points.len()) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        queue.write_buffer(
-            &trajectory_buffer,
-            0,
-            bytemuck::cast_slice(&trajectory_points),
-        );
-
-        let trajectory_shader = device
-            .create_shader_module(wgpu::include_wgsl!("../../shaders/trajectory_shader.wgsl"));
-
-        let trajectory_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Trajectory Pipeline Layout"),
-                bind_group_layouts: &[&uniform_bind_group_layout],
-                ..Default::default()
-            });
-
-        let trajectory_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("Trajectory Pipeline"),
-            layout: Some(&trajectory_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &trajectory_shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[TrajectoryVertex::desc()],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::LineStrip,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &trajectory_shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview: None,
-            cache: None,
-        });
+        let trajectory = TrajectoryPipeline::new(device, format, &uniform_bind_group_layout);
 
         let satellite = SatellitePipeline::new(device, queue, format);
 
@@ -336,10 +235,9 @@ impl Pipeline {
             uniforms_bind_group,
             pipeline,
             star_pipeline,
-            trajectory_pipeline,
-            trajectory_buffer,
-            trajectory_count,
-            orbit_ranges: Vec::new(),
+            trajectory,
+            feature_buffer: None,
+            feature_ranges: Vec::new(),
             satellite,
             planet_vertices_count: 0,
             depth_texture: None,
@@ -392,30 +290,24 @@ impl Pipeline {
 
         // Fill orbit trajectory points and ranges.
         let (orbit_points, orbit_ranges) = model.orbit_line_points(ORBIT_SAMPLES);
-        self.orbit_ranges = orbit_ranges;
-        self.trajectory_count = orbit_points.len() as u32;
+        self.trajectory
+            .set_data(device, queue, orbit_points, orbit_ranges);
 
-        let trajectory_vertices: Vec<TrajectoryVertex> = orbit_points
-            .into_iter()
-            .map(|p| TrajectoryVertex { position: p })
-            .collect();
-
-        let board_size =
-            bytemuck::cast_slice::<TrajectoryVertex, u8>(&trajectory_vertices).len() as u64;
-
-        if board_size > 0 {
-            self.trajectory_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Trajectory Buffer"),
-                size: board_size,
+        // Features (station beams, visibility cones, satellite FOV, squares)
+        let (feature_points, feature_ranges) = model.features_line_points(elapsed);
+        self.feature_ranges = feature_ranges;
+        if !feature_points.is_empty() {
+            let feature_size = bytemuck::cast_slice::<[f32; 3], u8>(&feature_points).len() as u64;
+            let buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Feature Line Buffer"),
+                size: feature_size,
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-
-            queue.write_buffer(
-                &self.trajectory_buffer,
-                0,
-                bytemuck::cast_slice(&trajectory_vertices),
-            );
+            queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&feature_points));
+            self.feature_buffer = Some(buffer);
+        } else {
+            self.feature_buffer = None;
         }
 
         // Satellites
@@ -481,13 +373,16 @@ impl Pipeline {
         render_pass.set_vertex_buffer(0, self.vertices.slice(..));
         render_pass.draw(0..self.planet_vertices_count, 0..1);
 
-        if !self.orbit_ranges.is_empty() {
-            render_pass.set_pipeline(&self.trajectory_pipeline);
-            render_pass.set_bind_group(0, &self.uniforms_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.trajectory_buffer.slice(..));
-            for (start, len) in self.orbit_ranges.iter() {
-                render_pass.draw(*start..(*start + *len), 0..1);
-            }
+        self.trajectory
+            .render(&mut render_pass, &self.uniforms_bind_group);
+
+        if let Some(feature_buffer) = &self.feature_buffer {
+            self.trajectory.render_with_buffer(
+                &mut render_pass,
+                &self.uniforms_bind_group,
+                feature_buffer,
+                &self.feature_ranges,
+            );
         }
 
         self.satellite.render(&mut render_pass);

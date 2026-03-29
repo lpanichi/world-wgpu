@@ -1,4 +1,4 @@
-use crate::gpu::pipelines::textured::camera::Camera;
+use crate::gpu::pipelines::planet::camera::Camera;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
