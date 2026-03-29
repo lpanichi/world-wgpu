@@ -102,6 +102,7 @@ impl Default for Textured {
                     .raan(80.0)
                     .arg_perigee(30.0)
                     .show_orbit(true)
+                    .add_satellite(Satellite::builder("Sat-3").phase_offset(2.0).build())
                     .build(),
             )
             .build();

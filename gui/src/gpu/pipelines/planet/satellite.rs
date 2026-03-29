@@ -316,8 +316,8 @@ impl SatellitePipeline {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: TextureFormat::Depth24Plus,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Always,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
