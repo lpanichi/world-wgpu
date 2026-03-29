@@ -11,6 +11,26 @@ use crate::gpu::pipelines::textured::{
     camera::Camera, texture, uniforms::Uniforms, vertex::TextureVertex,
 };
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct TrajectoryVertex {
+    position: [f32; 3],
+}
+
+impl TrajectoryVertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<TrajectoryVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[wgpu::VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: wgpu::VertexFormat::Float32x3,
+            }],
+        }
+    }
+}
+
 pub struct Pipeline {
     vertices: Buffer,
     texture_bind_group: BindGroup,
@@ -18,6 +38,9 @@ pub struct Pipeline {
     uniforms_bind_group: BindGroup,
     pipeline: RenderPipeline,
     star_pipeline: RenderPipeline,
+    trajectory_pipeline: RenderPipeline,
+    trajectory_buffer: Buffer,
+    trajectory_count: u32,
 }
 
 impl Pipeline {
@@ -204,6 +227,78 @@ impl Pipeline {
             cache: None,
         });
 
+        let trajectory_points: Vec<TrajectoryVertex> = (0..128)
+            .map(|i| {
+                let theta = (i as f32) / 128.0 * std::f32::consts::TAU;
+                let radius = 2.7;
+                TrajectoryVertex {
+                    position: [radius * theta.cos(), 0.0, radius * theta.sin()],
+                }
+            })
+            .collect();
+
+        let trajectory_count = trajectory_points.len() as u32;
+        let trajectory_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Trajectory Buffer"),
+            size: (std::mem::size_of::<TrajectoryVertex>() * trajectory_points.len()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        queue.write_buffer(
+            &trajectory_buffer,
+            0,
+            bytemuck::cast_slice(&trajectory_points),
+        );
+
+        let trajectory_shader = device
+            .create_shader_module(wgpu::include_wgsl!("../../shaders/trajectory_shader.wgsl"));
+
+        let trajectory_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Trajectory Pipeline Layout"),
+                bind_group_layouts: &[&uniform_bind_group_layout],
+                ..Default::default()
+            });
+
+        let trajectory_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("Trajectory Pipeline"),
+            layout: Some(&trajectory_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &trajectory_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[TrajectoryVertex::desc()],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineStrip,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &trajectory_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+            cache: None,
+        });
+
         Pipeline {
             vertices,
             texture_bind_group,
@@ -211,6 +306,9 @@ impl Pipeline {
             uniforms_bind_group,
             pipeline,
             star_pipeline,
+            trajectory_pipeline,
+            trajectory_buffer,
+            trajectory_count,
         }
     }
 
@@ -270,6 +368,11 @@ impl Pipeline {
 
         render_pass.set_pipeline(&self.star_pipeline);
         render_pass.draw(0..3, 0..1);
+
+        render_pass.set_pipeline(&self.trajectory_pipeline);
+        render_pass.set_bind_group(0, &self.uniforms_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.trajectory_buffer.slice(..));
+        render_pass.draw(0..self.trajectory_count, 0..1);
 
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.texture_bind_group, &[]);

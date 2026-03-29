@@ -1,8 +1,22 @@
 use gui::gpu::pipelines::textured::{camera::Camera, pipeline::Pipeline, vertex::TextureVertex};
 use iced::{Rectangle, mouse, wgpu, widget::shader};
+use std::sync::Arc;
+
+#[derive(Debug)]
+pub struct Simulation {
+    pub triangles: Arc<Vec<TextureVertex>>,
+}
+
+impl Simulation {
+    pub fn new(triangles: Vec<TextureVertex>) -> Self {
+        Self {
+            triangles: Arc::new(triangles),
+        }
+    }
+}
 
 pub struct Program {
-    pub triangles: Vec<TextureVertex>,
+    pub simulation: Arc<Simulation>,
     pub camera: Camera,
 }
 
@@ -23,15 +37,15 @@ impl<Message> shader::Program<Message> for Program {
         camera.change_aspect(bounds.width, bounds.height);
 
         Primitive {
-            triangles: self.triangles.clone(),
-            camera: camera,
+            simulation: Arc::clone(&self.simulation),
+            camera,
         }
     }
 }
 
 #[derive(Debug)]
 pub struct Primitive {
-    triangles: Vec<TextureVertex>,
+    simulation: Arc<Simulation>,
     camera: Camera,
 }
 
@@ -51,7 +65,7 @@ impl shader::Primitive for Primitive {
             queue,
             bounds,
             viewport,
-            &self.triangles,
+            self.simulation.triangles.as_ref(),
             &self.camera,
         );
     }
@@ -64,6 +78,11 @@ impl shader::Primitive for Primitive {
         clip_bounds: &Rectangle<u32>,
     ) {
         // Render primitive
-        pipeline.render(encoder, target, &self.triangles, clip_bounds);
+        pipeline.render(
+            encoder,
+            target,
+            self.simulation.triangles.as_ref(),
+            clip_bounds,
+        );
     }
 }

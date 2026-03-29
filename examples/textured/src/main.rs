@@ -14,6 +14,7 @@ mod program;
 #[derive(Clone)]
 enum Message {
     KeyboardEvent(keyboard::Event),
+    Event(iced::event::Event),
 }
 
 struct Textured {
@@ -24,6 +25,7 @@ impl Textured {
     fn update(&mut self, message: Message) {
         match message {
             Message::KeyboardEvent(event) => self.handle_keyboard_event(event),
+            Message::Event(event) => self.handle_event(event),
         }
     }
 
@@ -48,6 +50,21 @@ impl Textured {
         }
     }
 
+    fn handle_event(&mut self, event: iced::event::Event) {
+        if let iced::event::Event::Mouse(mouse_event) = event {
+            match mouse_event {
+                iced::mouse::Event::WheelScrolled { delta } => {
+                    let amount = match delta {
+                        iced::mouse::ScrollDelta::Lines { y, .. } => y * 0.5,
+                        iced::mouse::ScrollDelta::Pixels { y, .. } => y * 0.01,
+                    };
+                    self.program.camera.dolly(amount);
+                }
+                _ => (),
+            }
+        }
+    }
+
     fn view(&self) -> Element<'_, Message> {
         let shader = shader(&self.program).width(Fill).height(Fill);
         let controls = row![button("hello")];
@@ -60,12 +77,13 @@ impl Default for Textured {
     fn default() -> Self {
         let sphere = build_sphere();
         let triangles = into_textured_vertex(sphere);
-        let camera = Camera::new([0., 0., -3.].into(), [0., 0., 0.].into(), 200., 200.);
+        let simulation = program::Simulation::new(triangles);
+        let camera = Camera::new([0., 6., -15.].into(), [0., 0., 0.].into(), 200., 200.);
 
         Self {
             program: program::Program {
-                triangles: triangles,
-                camera: camera,
+                simulation: std::sync::Arc::new(simulation),
+                camera,
             },
         }
     }
@@ -73,7 +91,12 @@ impl Default for Textured {
 
 fn main() -> iced::Result {
     iced::application(Textured::default, Textured::update, Textured::view)
-        .subscription(|_state: &Textured| iced::keyboard::listen().map(Message::KeyboardEvent))
+        .subscription(|_state: &Textured| {
+            iced::Subscription::batch([
+                iced::keyboard::listen().map(Message::KeyboardEvent),
+                iced::event::listen().map(Message::Event),
+            ])
+        })
         .theme(Theme::KanagawaDragon)
         .run()
 }

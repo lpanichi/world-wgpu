@@ -43,6 +43,14 @@ impl Camera {
         self.eye = (*position).into()
     }
 
+    pub fn dolly(&mut self, amount: f32) {
+        let direction = self.target - self.eye;
+        let dir_norm = direction.normalize();
+        let distance = direction.norm();
+        let new_distance = (distance - amount).max(1.0);
+        self.eye = self.target - dir_norm * new_distance;
+    }
+
     pub fn rotate_around_up(&mut self, angle_rad: f32) {
         let axis = self.up;
         let direction = self.eye - self.target;
