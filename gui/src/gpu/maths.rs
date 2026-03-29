@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 
-use crate::astro::constants::EARTH_RADIUS;
+use astro::constants::EARTH_RADIUS;
 
 /// Convert xyz to r, theata, phi for graphical rendering.
 /// x axis is horizontal to the screen

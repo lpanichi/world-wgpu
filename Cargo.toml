@@ -16,7 +16,7 @@
 
 [workspace]
 resolver = "3"
-members = ["gui", "geometry", "examples/*"]
+members = ["gui", "geometry", "astro", "examples/*"]
 
 [package]
 name = "world-wgpu"
@@ -44,6 +44,7 @@ rust-version = "1.93"
 [workspace.dependencies]
 gui = { version = "0.1.0", path = "gui" }
 geometry = { version = "0.1.0", path = "geometry" }
+astro = { version = "0.1.0", path = "astro" }
 
 iced = { version = "0.14.0", default-features = true, features = ["smol"] }
 winit = { version = "0.30.12", features = ["rwh_05"] }
