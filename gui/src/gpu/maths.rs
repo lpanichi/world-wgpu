@@ -29,9 +29,9 @@ use crate::astro::constants::EARTH_RADIUS;
 pub fn wgpu_cartesian_to_spherical(xyz: &[f32; 3]) -> [f32; 3] {
     let [x, y, z] = xyz;
     let r = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
-    let theta = x.atan2(*z) % 2. * PI;
+    let theta = x.atan2(*z) % (2.0 * PI);
     let theta = if theta < 0.0 { theta + 2. * PI } else { theta };
-    let phi = (y / r).acos();
+    let phi = (y / r).clamp(-1.0, 1.0).acos();
     [r, theta, phi]
 }
 
