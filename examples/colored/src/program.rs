@@ -1,4 +1,4 @@
-use gui::gpu::pipelines::colored::{pipeline::Pipeline, vertex::ColorVertex};
+use gui::gpu::pipelines::star::{pipeline::Pipeline, vertex::ColorVertex};
 use iced::{Rectangle, mouse, wgpu, widget::shader};
 
 pub struct Program {

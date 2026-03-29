@@ -6,11 +6,15 @@ use iced::{
     },
     widget::shader,
 };
-use nalgebra::Matrix4;
 
-use crate::gpu::pipelines::textured::{
+use crate::gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode};
+use crate::gpu::pipelines::planet::{
     camera::Camera, texture, uniforms::Uniforms, vertex::TextureVertex,
 };
+
+use crate::model::Simulation;
+
+const ORBIT_SAMPLES: usize = 128;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -32,22 +36,6 @@ impl TrajectoryVertex {
     }
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct SatelliteUniforms {
-    view_proj: [[f32; 4]; 4],
-    model: [[f32; 4]; 4],
-}
-
-impl SatelliteUniforms {
-    fn new() -> Self {
-        Self {
-            view_proj: nalgebra::Matrix4::identity().into(),
-            model: nalgebra::Matrix4::identity().into(),
-        }
-    }
-}
-
 pub struct Pipeline {
     vertices: Buffer,
     texture_bind_group: BindGroup,
@@ -58,11 +46,9 @@ pub struct Pipeline {
     trajectory_pipeline: RenderPipeline,
     trajectory_buffer: Buffer,
     trajectory_count: u32,
-    satellite_pipeline: RenderPipeline,
-    satellite_buffer: Buffer,
-    satellite_count: u32,
-    satellite_uniforms: Buffer,
-    satellite_uniforms_bind_group: BindGroup,
+    orbit_ranges: Vec<(u32, u32)>,
+    satellite: SatellitePipeline,
+    planet_vertices_count: u32,
     depth_texture: Option<wgpu::Texture>,
     depth_size: (u32, u32),
 }
@@ -73,7 +59,7 @@ impl Pipeline {
         queue: &iced::wgpu::Queue,
         format: iced::wgpu::TextureFormat,
     ) -> Self {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+        let shader = device.create_shader_module(wgpu::include_wgsl!("../../shaders/shader.wgsl"));
 
         // Vertices
         let vertices = device.create_buffer(&BufferDescriptor {
@@ -109,7 +95,7 @@ impl Pipeline {
                 label: Some("texture_bind_group_layout"),
             });
 
-        let texture_bytes = include_bytes!("earthmap1k.jpg");
+        let texture_bytes = include_bytes!("../../textures/earthmap1k.jpg");
         let texture =
             texture::Texture::from_bytes(device, queue, texture_bytes, "Earth 1K texture").unwrap();
         let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -167,7 +153,7 @@ impl Pipeline {
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("Pipeline"),
+            label: Some("Planet Pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -220,7 +206,7 @@ impl Pipeline {
         });
 
         let star_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("Starfield Pipeline"),
+            label: Some("Planet Star Pipeline"),
             layout: Some(&star_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &star_shader,
@@ -341,218 +327,7 @@ impl Pipeline {
             cache: None,
         });
 
-        let cube_vertices: Vec<TrajectoryVertex> = vec![
-            // front
-            TrajectoryVertex {
-                position: [-0.1, -0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, -0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, 0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [-0.1, -0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, 0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [-0.1, 0.1, 0.1],
-            },
-            // back
-            TrajectoryVertex {
-                position: [-0.1, -0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, 0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, -0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [-0.1, -0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [-0.1, 0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, 0.1, -0.1],
-            },
-            // top
-            TrajectoryVertex {
-                position: [-0.1, 0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [-0.1, 0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, 0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [-0.1, 0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, 0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, 0.1, -0.1],
-            },
-            // bottom
-            TrajectoryVertex {
-                position: [-0.1, -0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, -0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, -0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [-0.1, -0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [-0.1, -0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, -0.1, 0.1],
-            },
-            // left
-            TrajectoryVertex {
-                position: [-0.1, -0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [-0.1, 0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [-0.1, -0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [-0.1, -0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [-0.1, 0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [-0.1, 0.1, 0.1],
-            },
-            // right
-            TrajectoryVertex {
-                position: [0.1, -0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, -0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, 0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, -0.1, -0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, 0.1, 0.1],
-            },
-            TrajectoryVertex {
-                position: [0.1, 0.1, -0.1],
-            },
-        ];
-
-        let satellite_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Satellite Buffer"),
-            size: (std::mem::size_of::<TrajectoryVertex>() * cube_vertices.len()) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        queue.write_buffer(&satellite_buffer, 0, bytemuck::cast_slice(&cube_vertices));
-
-        let satellite_count = cube_vertices.len() as u32;
-
-        let satellite_uniforms = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Satellite Uniforms"),
-            size: std::mem::size_of::<SatelliteUniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let satellite_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Satellite Uniforms bind group layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        let satellite_uniforms_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Satellite Uniforms bind group"),
-            layout: &satellite_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: satellite_uniforms.as_entire_binding(),
-            }],
-        });
-
-        let satellite_shader =
-            device.create_shader_module(wgpu::include_wgsl!("../../shaders/satellite_shader.wgsl"));
-
-        let satellite_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Satellite Pipeline Layout"),
-                bind_group_layouts: &[&satellite_bind_group_layout],
-                ..Default::default()
-            });
-
-        let satellite_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("Satellite Pipeline"),
-            layout: Some(&satellite_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &satellite_shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[TrajectoryVertex::desc()],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &satellite_shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview: None,
-            cache: None,
-        });
+        let satellite = SatellitePipeline::new(device, queue, format);
 
         Pipeline {
             vertices,
@@ -564,11 +339,9 @@ impl Pipeline {
             trajectory_pipeline,
             trajectory_buffer,
             trajectory_count,
-            satellite_pipeline,
-            satellite_buffer,
-            satellite_count,
-            satellite_uniforms,
-            satellite_uniforms_bind_group,
+            orbit_ranges: Vec::new(),
+            satellite,
+            planet_vertices_count: 0,
             depth_texture: None,
             depth_size: (0, 0),
         }
@@ -581,9 +354,10 @@ impl Pipeline {
         queue: &wgpu::Queue,
         _bounds: &iced::Rectangle,
         viewport: &shader::Viewport,
-        triangles: &[TextureVertex],
+        model: &Simulation,
         camera: &Camera,
-        satellite_position: [f32; 3],
+        elapsed: f32,
+        satellite_mode: SatelliteRenderMode,
     ) {
         let width = viewport.physical_width();
         let height = viewport.physical_height();
@@ -605,40 +379,58 @@ impl Pipeline {
                 view_formats: &[],
             }));
         }
-        let buffer_size = std::mem::size_of_val(triangles);
-        self.vertices = device.create_buffer(&wgpu::BufferDescriptor {
+        let planet_triangles = model.planet_triangles();
+        let buffer_size = bytemuck::cast_slice::<TextureVertex, u8>(planet_triangles).len() as u64;
+        self.vertices = device.create_buffer(&BufferDescriptor {
             label: Some("Triangle buffer"),
-            size: buffer_size as u64,
+            size: buffer_size,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let uniforms = Uniforms::new(camera);
 
-        let model = Matrix4::new_translation(&nalgebra::Vector3::new(
-            satellite_position[0],
-            satellite_position[1],
-            satellite_position[2],
-        ));
+        // Fill orbit trajectory points and ranges.
+        let (orbit_points, orbit_ranges) = model.orbit_line_points(ORBIT_SAMPLES);
+        self.orbit_ranges = orbit_ranges;
+        self.trajectory_count = orbit_points.len() as u32;
 
-        let mut satellite_uniforms = SatelliteUniforms::new();
-        satellite_uniforms.view_proj = camera.build_view_projection_matrix().into();
-        satellite_uniforms.model = model.into();
+        let trajectory_vertices: Vec<TrajectoryVertex> = orbit_points
+            .into_iter()
+            .map(|p| TrajectoryVertex { position: p })
+            .collect();
 
-        queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(triangles));
+        let board_size =
+            bytemuck::cast_slice::<TrajectoryVertex, u8>(&trajectory_vertices).len() as u64;
+
+        if board_size > 0 {
+            self.trajectory_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Trajectory Buffer"),
+                size: board_size,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+
+            queue.write_buffer(
+                &self.trajectory_buffer,
+                0,
+                bytemuck::cast_slice(&trajectory_vertices),
+            );
+        }
+
+        // Satellites
+        self.satellite.set_render_mode(satellite_mode);
+        self.satellite.prepare(queue, camera, model, elapsed);
+
+        queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(planet_triangles));
+        self.planet_vertices_count = planet_triangles.len() as u32;
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
-        queue.write_buffer(
-            &self.satellite_uniforms,
-            0,
-            bytemuck::bytes_of(&satellite_uniforms),
-        );
     }
 
     pub fn render(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
-        triangles: &[TextureVertex],
         clip_bounds: &Rectangle<u32>,
     ) {
         let depth_view = self
@@ -687,17 +479,18 @@ impl Pipeline {
         render_pass.set_bind_group(1, &self.uniforms_bind_group, &[]);
 
         render_pass.set_vertex_buffer(0, self.vertices.slice(..));
-        render_pass.draw(0..triangles.len() as u32, 0..1);
+        render_pass.draw(0..self.planet_vertices_count, 0..1);
 
-        render_pass.set_pipeline(&self.trajectory_pipeline);
-        render_pass.set_bind_group(0, &self.uniforms_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.trajectory_buffer.slice(..));
-        render_pass.draw(0..self.trajectory_count, 0..1);
+        if !self.orbit_ranges.is_empty() {
+            render_pass.set_pipeline(&self.trajectory_pipeline);
+            render_pass.set_bind_group(0, &self.uniforms_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.trajectory_buffer.slice(..));
+            for (start, len) in self.orbit_ranges.iter() {
+                render_pass.draw(*start..(*start + *len), 0..1);
+            }
+        }
 
-        render_pass.set_pipeline(&self.satellite_pipeline);
-        render_pass.set_bind_group(0, &self.satellite_uniforms_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.satellite_buffer.slice(..));
-        render_pass.draw(0..self.satellite_count, 0..1);
+        self.satellite.render(&mut render_pass);
     }
 }
 

@@ -1,5 +1,5 @@
 use geometry::tesselation::{NalgebraTriangle, divide_triangle};
-use gui::gpu::pipelines::colored::vertex::into_colored_vertex;
+use gui::gpu::pipelines::star::vertex::into_colored_vertex;
 use iced::{
     Element,
     Length::Fill,

@@ -19,7 +19,8 @@ impl Pipeline {
         _queue: &iced::wgpu::Queue,
         format: iced::wgpu::TextureFormat,
     ) -> Self {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+        let shader =
+            device.create_shader_module(wgpu::include_wgsl!("../../shaders/star_shader.wgsl"));
 
         let buffer = device.create_buffer(&BufferDescriptor {
             label: Some("Vertex Buffer"),

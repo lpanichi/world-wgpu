@@ -1,5 +1,6 @@
-use geometry::tesselation::build_sphere;
-use gui::gpu::pipelines::textured::{camera::Camera, vertex::into_textured_vertex};
+use gui::gpu::pipelines::planet::camera::Camera;
+use gui::gpu::pipelines::planet::satellite::SatelliteRenderMode;
+use gui::model::{Orbit, Satellite, Simulation};
 use iced::{
     Alignment::Center,
     Element,
@@ -50,6 +51,12 @@ impl Textured {
                 Key::Named(iced::keyboard::key::Named::ArrowDown) => {
                     self.program.camera.rotate_vertically(delta_angle);
                 }
+                Key::Named(iced::keyboard::key::Named::Space) => {
+                    self.program.satellite_mode = match self.program.satellite_mode {
+                        SatelliteRenderMode::Cube => SatelliteRenderMode::Dot,
+                        SatelliteRenderMode::Dot => SatelliteRenderMode::Cube,
+                    };
+                }
                 _ => (),
             }
         }
@@ -67,7 +74,10 @@ impl Textured {
 
     fn view(&self) -> Element<'_, Message> {
         let shader = shader(&self.program).width(Fill).height(Fill);
-        let controls = row![button("hello")];
+        let controls = row![iced::widget::text(format!(
+            "Satellites: {:?} (space to toggle)",
+            self.program.satellite_mode
+        ))];
 
         center(column![shader, controls].align_x(Center)).into()
     }
@@ -75,16 +85,35 @@ impl Textured {
 
 impl Default for Textured {
     fn default() -> Self {
-        let sphere = build_sphere();
-        let triangles = into_textured_vertex(sphere);
-        let simulation = program::Simulation::new(triangles);
+        let model = Simulation::builder()
+            .add_orbit(
+                Orbit::builder(6.0, 20.0)
+                    .inclination(20.0)
+                    .raan(30.0)
+                    .arg_perigee(0.0)
+                    .show_orbit(true)
+                    .add_satellite(Satellite::builder("Sat-1").phase_offset(0.0).build())
+                    .add_satellite(Satellite::builder("Sat-2").phase_offset(2.0).build())
+                    .build(),
+            )
+            .add_orbit(
+                Orbit::builder(8.0, 30.0)
+                    .inclination(45.0)
+                    .raan(80.0)
+                    .arg_perigee(30.0)
+                    .show_orbit(true)
+                    .build(),
+            )
+            .build();
+
         let camera = Camera::new([0., 6., -15.].into(), [0., 0., 0.].into(), 200., 200.);
 
         Self {
             program: program::Program {
-                simulation: std::sync::Arc::new(simulation),
+                model: std::sync::Arc::new(model),
                 camera,
                 start_time: std::time::Instant::now(),
+                satellite_mode: SatelliteRenderMode::Dot,
             },
         }
     }

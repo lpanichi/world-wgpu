@@ -1,35 +1,18 @@
-use gui::gpu::pipelines::textured::{camera::Camera, pipeline::Pipeline, vertex::TextureVertex};
+use gui::gpu::pipelines::planet::{camera::Camera, pipeline::Pipeline, satellite::SatelliteRenderMode};
+use gui::model::Simulation;
 use iced::{Rectangle, mouse, wgpu, widget::shader};
 use std::sync::Arc;
 
-#[derive(Debug)]
-pub struct Simulation {
-    pub triangles: Arc<Vec<TextureVertex>>,
-}
-
-impl Simulation {
-    pub fn new(triangles: Vec<TextureVertex>) -> Self {
-        Self {
-            triangles: Arc::new(triangles),
-        }
-    }
-}
-
 pub struct Program {
-    pub simulation: Arc<Simulation>,
+    pub model: Arc<Simulation>,
     pub camera: Camera,
     pub start_time: std::time::Instant,
+    pub satellite_mode: SatelliteRenderMode,
 }
 
 impl Program {
-    pub fn satellite_position(&self) -> [f32; 3] {
-        const SPEED: f32 = 0.8;
-        const RADIUS: f32 = 2.7;
-
-        let elapsed = self.start_time.elapsed().as_secs_f32();
-        let angle = (elapsed * SPEED) % (std::f32::consts::TAU);
-
-        [RADIUS * angle.cos(), 0.0, RADIUS * angle.sin()]
+    pub fn elapsed_time(&self) -> f32 {
+        self.start_time.elapsed().as_secs_f32()
     }
 }
 
@@ -48,18 +31,20 @@ impl<Message> shader::Program<Message> for Program {
         camera.change_aspect(bounds.width, bounds.height);
 
         Primitive {
-            simulation: Arc::clone(&self.simulation),
+            model: Arc::clone(&self.model),
             camera,
-            satellite_position: self.satellite_position(),
+            elapsed: self.elapsed_time(),
+            satellite_mode: self.satellite_mode,
         }
     }
 }
 
 #[derive(Debug)]
 pub struct Primitive {
-    simulation: Arc<Simulation>,
+    model: Arc<Simulation>,
     camera: Camera,
-    satellite_position: [f32; 3],
+    elapsed: f32,
+    satellite_mode: SatelliteRenderMode,
 }
 
 impl shader::Primitive for Primitive {
@@ -78,9 +63,10 @@ impl shader::Primitive for Primitive {
             queue,
             bounds,
             viewport,
-            self.simulation.triangles.as_ref(),
+            &self.model,
             &self.camera,
-            self.satellite_position,
+            self.elapsed,
+            self.satellite_mode,
         );
     }
 
@@ -91,12 +77,6 @@ impl shader::Primitive for Primitive {
         target: &wgpu::TextureView,
         clip_bounds: &Rectangle<u32>,
     ) {
-        // Render primitive
-        pipeline.render(
-            encoder,
-            target,
-            self.simulation.triangles.as_ref(),
-            clip_bounds,
-        );
+        pipeline.render(encoder, target, clip_bounds);
     }
 }
