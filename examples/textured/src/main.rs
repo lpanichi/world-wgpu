@@ -8,7 +8,7 @@ use iced::{
     keyboard::{self, Key},
     widget::{button, center, column, row, shader},
 };
-use nalgebra::{Rotation3, Unit};
+
 mod program;
 
 #[derive(Clone)]
@@ -32,37 +32,20 @@ impl Textured {
             let delta_angle = 5.0_f32.to_radians();
             match key {
                 Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
-                    self.rotate_camera_around_up(-delta_angle);
+                    self.program.camera.rotate_around_up(-delta_angle);
                 }
                 Key::Named(iced::keyboard::key::Named::ArrowRight) => {
-                    self.rotate_camera_around_up(delta_angle);
+                    self.program.camera.rotate_around_up(delta_angle);
                 }
                 Key::Named(iced::keyboard::key::Named::ArrowUp) => {
-                    self.rotate_camera_vertically(-delta_angle);
+                    self.program.camera.rotate_vertically(-delta_angle);
                 }
                 Key::Named(iced::keyboard::key::Named::ArrowDown) => {
-                    self.rotate_camera_vertically(delta_angle);
+                    self.program.camera.rotate_vertically(delta_angle);
                 }
                 _ => (),
             }
         }
-    }
-
-    fn rotate_camera_around_up(&mut self, angle_rad: f32) {
-        let camera = &mut self.program.camera;
-        let axis = camera.up; // Unit<Vector3<f32>>
-        let direction = camera.eye - camera.target;
-        let rot = Rotation3::from_axis_angle(&axis, angle_rad);
-        camera.eye = camera.target + rot * direction;
-    }
-
-    fn rotate_camera_vertically(&mut self, angle_rad: f32) {
-        let camera = &mut self.program.camera;
-        let right =
-            Unit::new_normalize((camera.eye - camera.target).cross(&camera.up.into_inner()));
-        let direction = camera.eye - camera.target;
-        let rot = Rotation3::from_axis_angle(&right, angle_rad);
-        camera.eye = camera.target + rot * direction;
     }
 
     fn view(&self) -> Element<'_, Message> {

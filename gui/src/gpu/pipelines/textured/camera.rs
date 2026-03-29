@@ -1,4 +1,4 @@
-use nalgebra::{Isometry3, Matrix4, Perspective3, Point3, Unit, Vector3};
+use nalgebra::{Isometry3, Matrix4, Perspective3, Point3, Rotation3, Unit, Vector3};
 
 #[derive(Debug, Clone)]
 pub struct Camera {
@@ -41,5 +41,19 @@ impl Camera {
 
     pub fn teleport(&mut self, position: &[f32; 3]) {
         self.eye = (*position).into()
+    }
+
+    pub fn rotate_around_up(&mut self, angle_rad: f32) {
+        let axis = self.up;
+        let direction = self.eye - self.target;
+        let rot = Rotation3::from_axis_angle(&axis, angle_rad);
+        self.eye = self.target + rot * direction;
+    }
+
+    pub fn rotate_vertically(&mut self, angle_rad: f32) {
+        let axis = Unit::new_normalize((self.eye - self.target).cross(&self.up.into_inner()));
+        let direction = self.eye - self.target;
+        let rot = Rotation3::from_axis_angle(&axis, angle_rad);
+        self.eye = self.target + rot * direction;
     }
 }

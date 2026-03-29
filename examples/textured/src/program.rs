@@ -6,11 +6,7 @@ pub struct Program {
     pub camera: Camera,
 }
 
-impl Program {
-    pub fn move_camera(&mut self, position: &[f32; 3]) {
-        self.camera.teleport(position);
-    }
-}
+impl Program {}
 
 impl<Message> shader::Program<Message> for Program {
     type State = String;

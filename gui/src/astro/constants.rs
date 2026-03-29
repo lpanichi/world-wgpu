@@ -1,1 +1,5 @@
 pub const EARTH_RADIUS: f32 = 6_378_136.6;
+
+pub const J2: f64 = 1.082_63e-3;
+pub const MU_EARTH: f64 = 398_600.4418; // km^3 / s^2
+pub const OMEGA_SUNSYNC_DEG_PER_DAY: f64 = -0.985_607_668_6; // nodal regression rate (retrograde)

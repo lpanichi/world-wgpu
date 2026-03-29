@@ -17,6 +17,7 @@ pub struct Pipeline {
     uniforms: Buffer,
     uniforms_bind_group: BindGroup,
     pipeline: RenderPipeline,
+    star_pipeline: RenderPipeline,
 }
 
 impl Pipeline {
@@ -156,12 +157,60 @@ impl Pipeline {
             cache: None,
         });
 
+        let star_shader = device
+            .create_shader_module(wgpu::include_wgsl!("../../shaders/star_shader.wgsl"));
+
+        let star_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Star Pipeline Layout"),
+            bind_group_layouts: &[],
+            ..Default::default()
+        });
+
+        let star_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("Starfield Pipeline"),
+            layout: Some(&star_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &star_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &star_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+            cache: None,
+        });
+
         Pipeline {
             vertices,
             texture_bind_group,
             uniforms,
             uniforms_bind_group,
             pipeline,
+            star_pipeline,
         }
     }
 
@@ -218,6 +267,9 @@ impl Pipeline {
             0.0,
             1.0,
         );
+
+        render_pass.set_pipeline(&self.star_pipeline);
+        render_pass.draw(0..3, 0..1);
 
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
