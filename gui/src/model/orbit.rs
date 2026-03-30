@@ -1,5 +1,6 @@
-use super::Satellite;
 use nalgebra::{Rotation3, Vector3};
+
+use crate::model::satellite::Satellite;
 
 #[derive(Debug, Clone)]
 pub struct Orbit {

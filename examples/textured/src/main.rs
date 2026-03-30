@@ -1,6 +1,10 @@
-use gui::gpu::pipelines::planet::camera::Camera;
-use gui::gpu::pipelines::planet::satellite::SatelliteRenderMode;
-use gui::model::{GroundStation, Orbit, Satellite, Simulation};
+use env_logger::Env;
+use gui::{
+    gpu::pipelines::planet::{camera::Camera, satellite::SatelliteRenderMode},
+    model::{
+        ground_station::GroundStation, orbit::Orbit, satellite::Satellite, simulation::Simulation,
+    },
+};
 use iced::{
     Element,
     Length::Fill,
@@ -9,9 +13,10 @@ use iced::{
     time::{self, milliseconds},
     widget::{button, column, container, pane_grid, row, scrollable, shader, text},
 };
-use nalgebra::{Point3, Point4, Vector3};
+use log::info;
 
 mod program;
+use crate::program::SelectedObject;
 
 #[derive(Clone)]
 enum Message {
@@ -34,14 +39,6 @@ enum Message {
     ResetTime,
 }
 
-#[derive(Clone, Debug)]
-enum SelectedObject {
-    Earth,
-    Satellite(String),
-    GroundStation(String),
-    None,
-}
-
 #[derive(Clone, Copy, Debug)]
 struct PaneState {
     id: usize,
@@ -60,11 +57,10 @@ struct Textured {
     status_message: String,
     cursor_position: Option<(f32, f32)>,
     drag_start: Option<(f32, f32)>,
-    left_button_down: bool,
+    right_button_down: bool,
     selected_object: SelectedObject,
     selected_hit_distance: Option<f32>,
     viewport_size: (f32, f32),
-    pick_radius_scale: f32,
 }
 
 impl Textured {
@@ -191,10 +187,9 @@ impl Textured {
             SelectedObject::GroundStation(name) => format!("Ground station selected: {}", name),
             SelectedObject::None => "No object selected".to_string(),
         };
-        log::info!(
+        info!(
             "OnObjectSelected: {:?} at distance={:?}",
-            object,
-            hit_distance
+            object, hit_distance
         );
     }
 
@@ -220,12 +215,6 @@ impl Textured {
                         SatelliteRenderMode::Dot => SatelliteRenderMode::Cube,
                     };
                 }
-                Key::Character(c) if c == "+" || c == "=" => {
-                    self.pick_radius_scale = (self.pick_radius_scale * 1.1).min(5.0);
-                }
-                Key::Character(c) if c == "-" || c == "_" => {
-                    self.pick_radius_scale = (self.pick_radius_scale / 1.1).max(0.1);
-                }
                 _ => (),
             }
         }
@@ -235,11 +224,18 @@ impl Textured {
         match event {
             iced::event::Event::Window(iced::window::Event::Resized(size)) => {
                 self.viewport_size = (size.width as f32, size.height as f32);
+                self.program
+                    .camera
+                    .change_aspect(size.width as f32, size.height as f32);
+                info!(
+                    "Window resized: width={} height={}, updated camera aspect={:.3}",
+                    size.width, size.height, self.program.camera.aspect
+                );
             }
             iced::event::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
                 let x = position.x;
                 let y = position.y;
-                if self.left_button_down {
+                if self.right_button_down {
                     if let Some((prev_x, prev_y)) = self.drag_start {
                         let dx = x - prev_x;
                         let dy = y - prev_y;
@@ -253,42 +249,44 @@ impl Textured {
                 self.cursor_position = Some((x, y));
             }
             iced::event::Event::Mouse(iced::mouse::Event::ButtonPressed(
+                iced::mouse::Button::Right,
+            )) => {
+                self.right_button_down = true;
+                self.drag_start = self.cursor_position;
+            }
+            iced::event::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                iced::mouse::Button::Right,
+            )) => {
+                self.right_button_down = false;
+                self.drag_start = None;
+            }
+            iced::event::Event::Mouse(iced::mouse::Event::ButtonPressed(
                 iced::mouse::Button::Left,
             )) => {
-                self.left_button_down = true;
-                self.drag_start = self.cursor_position;
+                // left button down starts potential selection; no drag behavior.
             }
             iced::event::Event::Mouse(iced::mouse::Event::ButtonReleased(
                 iced::mouse::Button::Left,
             )) => {
-                self.left_button_down = false;
                 if let Some(cursor_pos) = self.cursor_position {
-                    let is_click = self
-                        .drag_start
-                        .map(|start| (cursor_pos.0 - start.0).hypot(cursor_pos.1 - start.1) < 5.0)
-                        .unwrap_or(true);
+                    if let Some((x, y, w, h)) = self.shader_pane_region() {
+                        if cursor_pos.0 >= x
+                            && cursor_pos.0 <= x + w
+                            && cursor_pos.1 >= y
+                            && cursor_pos.1 <= y + h
+                        {
+                            let local_pos = (cursor_pos.0 - x, cursor_pos.1 - y);
 
-                    if is_click {
-                        if let Some((x, y, w, h)) = self.shader_pane_region() {
-                            if cursor_pos.0 >= x
-                                && cursor_pos.0 <= x + w
-                                && cursor_pos.1 >= y
-                                && cursor_pos.1 <= y + h
+                            if let Some((origin, direction)) =
+                                self.program.world_ray_from_cursor(local_pos, (w, h))
                             {
-                                let local_pos = (cursor_pos.0 - x, cursor_pos.1 - y);
-
-                                if let Some((origin, direction)) =
-                                    self.world_ray_from_cursor(local_pos, (w, h))
-                                {
-                                    let (selected, hit_distance) =
-                                        self.pick_object(origin, direction);
-                                    self.update(Message::OnObjectSelected(selected, hit_distance));
-                                }
+                                let (selected, hit_distance) =
+                                    self.program.pick_object(origin, direction);
+                                self.update(Message::OnObjectSelected(selected, hit_distance));
                             }
                         }
                     }
                 }
-                self.drag_start = None;
             }
             iced::event::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
                 let amount = match delta {
@@ -320,47 +318,6 @@ impl Textured {
         let region = regions.get(&shader_pane)?;
 
         Some((region.x, region.y, region.width, region.height))
-    }
-
-    fn world_ray_from_cursor(
-        &self,
-        cursor: (f32, f32),
-        viewport_size: (f32, f32),
-    ) -> Option<(Point3<f32>, Vector3<f32>)> {
-        let (width, height) = viewport_size;
-        if width <= 0.0 || height <= 0.0 {
-            return None;
-        }
-
-        let ndc_x = (cursor.0 / width) * 2.0 - 1.0;
-        let ndc_y = 1.0 - (cursor.1 / height) * 2.0; // Y is inverted in screen space
-
-        let view_proj = self.program.camera.build_view_projection_matrix();
-        let inv = view_proj.try_inverse()?;
-
-        let near_clip = Point4::new(ndc_x, ndc_y, -1.0, 1.0);
-        let far_clip = Point4::new(ndc_x, ndc_y, 1.0, 1.0);
-
-        let world_near = inv * near_clip;
-        let world_far = inv * far_clip;
-
-        if world_near.w.abs() < f32::EPSILON || world_far.w.abs() < f32::EPSILON {
-            return None;
-        }
-
-        let near_point = Point3::new(
-            world_near.x / world_near.w,
-            world_near.y / world_near.w,
-            world_near.z / world_near.w,
-        );
-        let far_point = Point3::new(
-            world_far.x / world_far.w,
-            world_far.y / world_far.w,
-            world_far.z / world_far.w,
-        );
-
-        let direction = (far_point - near_point).normalize();
-        Some((self.program.camera.eye, direction))
     }
 
     fn control_panel(&self) -> Element<'_, Message> {
@@ -425,92 +382,6 @@ impl Textured {
         scrollable(content).height(Fill).into()
     }
 
-    fn ray_sphere_distance(
-        origin: Point3<f32>,
-        direction: Vector3<f32>,
-        center: Point3<f32>,
-        radius: f32,
-    ) -> Option<f32> {
-        let oc = origin - center;
-        let a = direction.dot(&direction);
-        let b = 2.0 * oc.dot(&direction);
-        let c = oc.dot(&oc) - radius * radius;
-        let discriminant = b * b - 4.0 * a * c;
-
-        if discriminant < 0.0 {
-            return None;
-        }
-
-        let sqrt_d = discriminant.sqrt();
-        let t1 = (-b - sqrt_d) / (2.0 * a);
-        let t2 = (-b + sqrt_d) / (2.0 * a);
-
-        let t = [t1, t2]
-            .into_iter()
-            .filter(|&t| t > 0.0)
-            .min_by(|a, b| a.partial_cmp(b).unwrap())?;
-        Some(t)
-    }
-
-    fn pick_object(
-        &self,
-        origin: Point3<f32>,
-        direction: Vector3<f32>,
-    ) -> (SelectedObject, Option<f32>) {
-        let mut best_hit = (SelectedObject::None, f32::INFINITY, Option::<f32>::None);
-
-        // Earth as unit sphere at origin
-        if let Some(t) = Self::ray_sphere_distance(origin, direction, Point3::origin(), 1.0) {
-            best_hit = (SelectedObject::Earth, t, Some(t));
-        }
-
-        // variables used for all picks, all scales based on current tuning parameter
-        let satellite_radius = 0.08 * self.pick_radius_scale;
-        let station_radius = 0.1 * self.pick_radius_scale;
-
-        // satellites
-        for (orbit_index, orbit) in self.program.model.orbits.iter().enumerate() {
-            for (_sat_index, sat) in orbit.satellites.iter().enumerate() {
-                let pos = orbit.position(self.program.elapsed_time(), sat);
-                if let Some(t) = Self::ray_sphere_distance(
-                    origin,
-                    direction,
-                    Point3::new(pos[0], pos[1], pos[2]),
-                    satellite_radius,
-                ) {
-                    if t < best_hit.1 {
-                        best_hit = (
-                            SelectedObject::Satellite(format!("{}:{}", orbit_index, sat.name)),
-                            t,
-                            Some(t),
-                        );
-                    }
-                }
-            }
-        }
-
-        // ground stations
-        for station in &self.program.model.ground_stations {
-            let cart = station.cartesian();
-            if let Some(t) = Self::ray_sphere_distance(
-                origin,
-                direction,
-                Point3::new(cart[0], cart[1], cart[2]),
-                station_radius,
-            ) {
-                if t < best_hit.1 {
-                    best_hit = (
-                        SelectedObject::GroundStation(station.name.clone()),
-                        t,
-                        Some(t),
-                    );
-                }
-            }
-        }
-
-        (best_hit.0, best_hit.2)
-    }
-
     fn view(&self) -> Element<'_, Message> {
         let pane_grid = pane_grid::PaneGrid::new(&self.panes, |_, pane_state, _| {
             let content: Element<'_, Message> = match pane_state.id {
@@ -571,22 +442,24 @@ impl Default for Textured {
                 satellite_mode: SatelliteRenderMode::Dot,
                 paused: false,
                 paused_elapsed: 0.0,
+                pick_radius_scale: 2.0,
             },
             panes,
             focus: Some(root_pane),
             status_message: "No selection".to_string(),
             cursor_position: None,
             drag_start: None,
-            left_button_down: false,
+            right_button_down: false,
             selected_object: SelectedObject::None,
             selected_hit_distance: None,
             viewport_size: (200.0, 200.0),
-            pick_radius_scale: 1.0,
         }
     }
 }
 
 fn main() -> iced::Result {
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+
     iced::application(Textured::default, Textured::update, Textured::view)
         .subscription(|_state: &Textured| {
             iced::Subscription::batch([

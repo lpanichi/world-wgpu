@@ -7,13 +7,14 @@ use iced::{
     widget::shader,
 };
 
-use crate::gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode};
 use crate::gpu::pipelines::planet::{
     camera::Camera, texture, trajectory::TrajectoryPipeline, uniforms::Uniforms,
     vertex::TextureVertex,
 };
-
-use crate::model::Simulation;
+use crate::{
+    gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode},
+    model::simulation::Simulation,
+};
 
 const ORBIT_SAMPLES: usize = 128;
 

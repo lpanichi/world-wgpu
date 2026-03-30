@@ -1,6 +1,5 @@
-use crate::gpu::pipelines::planet::camera::Camera;
 use crate::gpu::pipelines::planet::vertex::TrajectoryVertex;
-use crate::model::Simulation;
+use crate::{gpu::pipelines::planet::camera::Camera, model::simulation::Simulation};
 use iced::wgpu::{
     self, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,
     BufferDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderStages, TextureFormat,
