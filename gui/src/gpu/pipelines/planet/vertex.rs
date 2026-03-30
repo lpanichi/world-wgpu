@@ -13,14 +13,16 @@ pub struct TextureVertex {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct TrajectoryVertex {
+pub struct PositionVertex {
     pub position: [f32; 3],
 }
 
-impl TrajectoryVertex {
+pub type TrajectoryVertex = PositionVertex;
+
+impl PositionVertex {
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<TrajectoryVertex>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<PositionVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[wgpu::VertexAttribute {
                 offset: 0,
@@ -170,40 +172,9 @@ mod tests {
         y: f32,
     }
 
-    fn tri_area(pts: [UvPoint; 3]) -> f32 {
-        let [a, b, c] = pts;
-        0.5 * ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)).abs()
-    }
-
     fn is_ccw(pts: [UvPoint; 3]) -> bool {
         let [a, b, c] = pts;
         ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) > 0.0
-    }
-
-    fn edge_intersect(a: UvPoint, b: UvPoint, c: UvPoint, d: UvPoint) -> bool {
-        let s1_x = b.x - a.x;
-        let s1_y = b.y - a.y;
-        let s2_x = d.x - c.x;
-        let s2_y = d.y - c.y;
-
-        let det = -s2_x * s1_y + s1_x * s2_y;
-        if det.abs() < f32::EPSILON {
-            return false;
-        }
-
-        let s = (-s1_y * (a.x - c.x) + s1_x * (a.y - c.y)) / det;
-        let t = (s2_x * (a.y - c.y) - s2_y * (a.x - c.x)) / det;
-
-        s >= 0.0 && s <= 1.0 && t >= 0.0 && t <= 1.0
-    }
-
-    fn point_in_tri(p: UvPoint, tri: [UvPoint; 3]) -> bool {
-        let [a, b, c] = tri;
-        let area = tri_area([a, b, c]);
-        let area1 = tri_area([p, b, c]);
-        let area2 = tri_area([a, p, c]);
-        let area3 = tri_area([a, b, p]);
-        (area1 + area2 + area3 - area).abs() < 1e-6
     }
 
     fn polygon_clip(

@@ -5,7 +5,7 @@ struct VsUniforms {
     sun_direction: vec4<f32>,
     earth_rotation_angle: f32,
     frame_mode: u32,
-    satellite_scale: f32,
+    station_scale: f32,
     _padding: u32,
     models: array<mat4x4<f32>, 64>,
 }
@@ -42,39 +42,31 @@ fn vs_main_cube(input: VertexInput, @builtin(instance_index) inst: u32) -> Verte
 
     let is_eci = uniforms.frame_mode == 0u;
     let ecef_to_eci = earth_rotation(uniforms.earth_rotation_angle);
-    let eci_to_ecef = earth_rotation(-uniforms.earth_rotation_angle);
 
-    let satellite_position = select(eci_to_ecef * world_position, world_position, is_eci);
-    let satellite_normal = select((eci_to_ecef * vec4<f32>(world_normal, 0.0)).xyz, world_normal, is_eci);
+    let station_position = select(world_position, ecef_to_eci * world_position, is_eci);
+    let station_normal = select(world_normal, (ecef_to_eci * vec4<f32>(world_normal, 0.0)).xyz, is_eci);
 
-    out.world_normal = normalize(satellite_normal);
-    out.position = uniforms.view_proj * satellite_position;
+    out.world_normal = normalize(station_normal);
+    out.position = uniforms.view_proj * station_position;
     return out;
 }
 
 @vertex
-fn vs_main_dot(input: VertexInput, @builtin(instance_index) inst: u32) -> VertexOutput {
+fn vs_main_cone(input: VertexInput, @builtin(instance_index) inst: u32) -> VertexOutput {
+    // Same transformation as cube for station cone orientation.
     var out: VertexOutput;
     let model = uniforms.models[inst];
-    let center = model * vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    let world_position = model * vec4<f32>(input.position, 1.0);
+    let world_normal = normalize((model * vec4<f32>(input.position, 0.0)).xyz);
 
-    let world_normal = normalize(center.xyz);
-
-    let dot_radius_world = uniforms.satellite_scale;
-    let world_offset =
-        uniforms.camera_right.xyz * input.position.x * dot_radius_world +
-        uniforms.camera_up.xyz * input.position.y * dot_radius_world;
-
-    let position = center.xyz + world_offset;
     let is_eci = uniforms.frame_mode == 0u;
     let ecef_to_eci = earth_rotation(uniforms.earth_rotation_angle);
-    let eci_to_ecef = earth_rotation(-uniforms.earth_rotation_angle);
 
-    let sat_position = select(eci_to_ecef * vec4<f32>(position, 1.0), vec4<f32>(position, 1.0), is_eci);
-    let sat_normal = select((eci_to_ecef * vec4<f32>(world_normal, 0.0)).xyz, world_normal, is_eci);
+    let station_position = select(world_position, ecef_to_eci * world_position, is_eci);
+    let station_normal = select(world_normal, (ecef_to_eci * vec4<f32>(world_normal, 0.0)).xyz, is_eci);
 
-    out.world_normal = normalize(sat_normal);
-    out.position = uniforms.view_proj * sat_position;
+    out.world_normal = normalize(station_normal);
+    out.position = uniforms.view_proj * station_position;
     return out;
 }
 
@@ -85,7 +77,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let diffuse = max(dot(normal, sun), 0.0);
     let lit_strength = 0.2 + 0.8 * diffuse;
 
-    let base_color = vec3<f32>(0.8, 0.2, 0.2);
+    let base_color = vec3<f32>(0.2, 0.8, 0.2);
     let color = base_color * lit_strength;
     return vec4<f32>(color, 1.0);
 }

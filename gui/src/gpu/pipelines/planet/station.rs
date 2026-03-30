@@ -1,30 +1,30 @@
 use crate::gpu::pipelines::planet::camera::Camera;
-use crate::gpu::pipelines::planet::instance_mesh::{cube_vertices, dot_vertices};
+use crate::gpu::pipelines::planet::instance_mesh::cube_vertices;
 use crate::gpu::pipelines::planet::vertex::PositionVertex;
-use crate::model::simulation::{EARTH_RADIUS_KM, Simulation};
+use crate::model::simulation::Simulation;
 use iced::wgpu::{
     self, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,
     BufferDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderStages, TextureFormat,
 };
-use nalgebra::Vector3;
+use nalgebra::{ Vector3};
 
-const MAX_SATELLITES: usize = 64;
+const MAX_STATIONS: usize = 64;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct SatelliteUniforms {
+pub struct StationUniforms {
     pub view_proj: [[f32; 4]; 4],
     pub camera_right: [f32; 4],
     pub camera_up: [f32; 4],
     pub sun_direction: [f32; 4],
     pub earth_rotation_angle: f32,
     pub frame_mode: u32,
-    pub satellite_scale: f32,
+    pub station_scale: f32,
     pub _padding: u32,
-    pub models: [[[f32; 4]; 4]; MAX_SATELLITES],
+    pub models: [[[f32; 4]; 4]; MAX_STATIONS],
 }
 
-impl SatelliteUniforms {
+impl StationUniforms {
     pub fn new() -> Self {
         Self {
             view_proj: nalgebra::Matrix4::identity().into(),
@@ -33,73 +33,63 @@ impl SatelliteUniforms {
             sun_direction: [1.0, 0.0, 0.0, 0.0],
             earth_rotation_angle: 0.0,
             frame_mode: 0,
-            satellite_scale: 1.0,
+            station_scale: 1.0,
             _padding: 0,
-            models: [nalgebra::Matrix4::identity().into(); MAX_SATELLITES],
+            models: [nalgebra::Matrix4::identity().into(); MAX_STATIONS],
         }
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum SatelliteRenderMode {
-    Cube,
-    Dot,
-}
-
-pub struct SatellitePipeline {
-    mode: SatelliteRenderMode,
+pub struct StationPipeline {
     cube_pipeline: RenderPipeline,
-    dot_pipeline: RenderPipeline,
+    cone_pipeline: RenderPipeline,
     cube_buffer: Buffer,
-    dot_buffer: Buffer,
+    cone_buffer: Buffer,
     cube_vertex_count: u32,
-    dot_vertex_count: u32,
-    satellite_instances: u32,
-    satellite_uniforms: Buffer,
-    satellite_uniforms_bind_group: BindGroup,
+    cone_vertex_count: u32,
+    station_instances: u32,
+    station_uniforms: Buffer,
+    station_uniforms_bind_group: BindGroup,
+    cone_uniforms: Buffer,
+    cone_uniforms_bind_group: BindGroup,
 }
 
-impl SatellitePipeline {
+impl StationPipeline {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: TextureFormat) -> Self {
         let cube_vertices = cube_vertices();
-        let dot_vertices = dot_vertices();
+        let cone_vertices = crate::gpu::pipelines::planet::instance_mesh::cone_vertices();
 
         let cube_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Satellite Cube Buffer"),
+            label: Some("Station Cube Buffer"),
             size: (std::mem::size_of::<PositionVertex>() * cube_vertices.len()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         queue.write_buffer(&cube_buffer, 0, bytemuck::cast_slice(&cube_vertices));
-
         let cube_vertex_count = cube_vertices.len() as u32;
 
-        // Dot mode renders camera-facing billboards in `vs_main_dot`.
-        // A unit quad keeps the sizing logic in the shader straightforward.
-        let dot_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Satellite Dot Buffer"),
-            size: (std::mem::size_of::<PositionVertex>() * dot_vertices.len()) as u64,
+        let cone_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Station Cone Buffer"),
+            size: (std::mem::size_of::<PositionVertex>() * cone_vertices.len()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        queue.write_buffer(&dot_buffer, 0, bytemuck::cast_slice(&dot_vertices));
+        queue.write_buffer(&cone_buffer, 0, bytemuck::cast_slice(&cone_vertices));
+        let cone_vertex_count = cone_vertices.len() as u32;
 
-        let dot_vertex_count = dot_vertices.len() as u32;
+        let station_shader =
+            device.create_shader_module(wgpu::include_wgsl!("../../shaders/station_shader.wgsl"));
 
-        let satellite_shader =
-            device.create_shader_module(wgpu::include_wgsl!("../../shaders/satellite_shader.wgsl"));
-
-        let satellite_uniform_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Satellite Uniforms Buffer"),
-            // size: (std::mem::size_of::<SatelliteUniforms>() + 16) as u64,
-            size: std::mem::size_of::<SatelliteUniforms>() as u64,
+        let station_uniform_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Station Uniforms Buffer"),
+            size: std::mem::size_of::<StationUniforms>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        let satellite_bind_group_layout =
+        let station_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Satellite Uniforms bind group layout"),
+                label: Some("Station Uniforms bind group layout"),
                 entries: &[BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
@@ -112,27 +102,43 @@ impl SatellitePipeline {
                 }],
             });
 
-        let satellite_uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Satellite Uniforms bind group"),
-            layout: &satellite_bind_group_layout,
+        let station_uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Station Uniforms bind group"),
+            layout: &station_bind_group_layout,
             entries: &[BindGroupEntry {
                 binding: 0,
-                resource: satellite_uniform_buffer.as_entire_binding(),
+                resource: station_uniform_buffer.as_entire_binding(),
             }],
         });
 
-        let satellite_pipeline_layout =
+        let cone_uniform_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Station Cone Uniforms Buffer"),
+            size: std::mem::size_of::<StationUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let cone_uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Station Cone Uniforms bind group"),
+            layout: &station_bind_group_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: cone_uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        let station_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Satellite Pipeline Layout"),
-                bind_group_layouts: &[&satellite_bind_group_layout],
+                label: Some("Station Pipeline Layout"),
+                bind_group_layouts: &[&station_bind_group_layout],
                 ..Default::default()
             });
 
         let cube_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("Satellite Cube Pipeline"),
-            layout: Some(&satellite_pipeline_layout),
+            label: Some("Station Cube Pipeline"),
+            layout: Some(&station_pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &satellite_shader,
+                module: &station_shader,
                 entry_point: Some("vs_main_cube"),
                 compilation_options: Default::default(),
                 buffers: &[PositionVertex::desc()],
@@ -159,7 +165,7 @@ impl SatellitePipeline {
                 alpha_to_coverage_enabled: false,
             },
             fragment: Some(wgpu::FragmentState {
-                module: &satellite_shader,
+                module: &station_shader,
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
@@ -172,12 +178,12 @@ impl SatellitePipeline {
             cache: None,
         });
 
-        let dot_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("Satellite Dot Pipeline"),
-            layout: Some(&satellite_pipeline_layout),
+        let cone_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("Station Cone Pipeline"),
+            layout: Some(&station_pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &satellite_shader,
-                entry_point: Some("vs_main_dot"),
+                module: &station_shader,
+                entry_point: Some("vs_main_cone"),
                 compilation_options: Default::default(),
                 buffers: &[PositionVertex::desc()],
             },
@@ -203,7 +209,7 @@ impl SatellitePipeline {
                 alpha_to_coverage_enabled: false,
             },
             fragment: Some(wgpu::FragmentState {
-                module: &satellite_shader,
+                module: &station_shader,
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
@@ -217,16 +223,17 @@ impl SatellitePipeline {
         });
 
         Self {
-            mode: SatelliteRenderMode::Cube,
             cube_pipeline,
-            dot_pipeline,
+            cone_pipeline,
             cube_buffer,
-            dot_buffer,
+            cone_buffer,
             cube_vertex_count,
-            dot_vertex_count,
-            satellite_instances: 0,
-            satellite_uniforms: satellite_uniform_buffer,
-            satellite_uniforms_bind_group: satellite_uniform_bind_group,
+            cone_vertex_count,
+            station_instances: 0,
+            station_uniforms: station_uniform_buffer,
+            station_uniforms_bind_group: station_uniform_bind_group,
+            cone_uniforms: cone_uniform_buffer,
+            cone_uniforms_bind_group: cone_uniform_bind_group,
         }
     }
 
@@ -240,17 +247,15 @@ impl SatellitePipeline {
         sun_dir: Vector3<f32>,
         earth_rotation_angle: f32,
     ) {
-        let satellite_models = model.satellite_models(elapsed);
-        let instances = satellite_models.len().min(MAX_SATELLITES);
-        self.satellite_instances = instances as u32;
+        let station_models = model.ground_station_models(elapsed);
+        self.station_instances = station_models.len().min(MAX_STATIONS) as u32;
 
-        let mut uniforms = SatelliteUniforms::new();
+        let mut uniforms = StationUniforms::new();
         uniforms.view_proj = camera.build_view_projection_matrix().into();
+        uniforms.frame_mode = frame_mode;
 
         uniforms.sun_direction = [sun_dir.x, sun_dir.y, sun_dir.z, 0.0];
         uniforms.earth_rotation_angle = earth_rotation_angle;
-        uniforms.frame_mode = frame_mode;
-        uniforms.satellite_scale = EARTH_RADIUS_KM * Simulation::SATELLITE_SCALE_FACTOR;
 
         let camera_forward = (camera.target - camera.eye).normalize();
         let camera_right = camera_forward.cross(&camera.up.into_inner()).normalize();
@@ -259,36 +264,37 @@ impl SatellitePipeline {
         uniforms.camera_right = [camera_right.x, camera_right.y, camera_right.z, 0.0];
         uniforms.camera_up = [camera_up.x, camera_up.y, camera_up.z, 0.0];
 
-        for (i, model_mat) in satellite_models
-            .into_iter()
-            .take(MAX_SATELLITES)
-            .enumerate()
-        {
+        for (i, model_mat) in station_models.into_iter().take(MAX_STATIONS).enumerate() {
             uniforms.models[i] = model_mat.into();
         }
 
-        queue.write_buffer(&self.satellite_uniforms, 0, bytemuck::bytes_of(&uniforms));
-    }
+        queue.write_buffer(&self.station_uniforms, 0, bytemuck::bytes_of(&uniforms));
 
-    pub fn set_render_mode(&mut self, mode: SatelliteRenderMode) {
-        self.mode = mode;
+        let cone_models = model.ground_station_cone_models(elapsed);
+        let mut cone_uniforms = StationUniforms::new();
+        cone_uniforms.view_proj = uniforms.view_proj;
+        cone_uniforms.camera_right = uniforms.camera_right;
+        cone_uniforms.camera_up = uniforms.camera_up;
+        cone_uniforms.sun_direction = uniforms.sun_direction;
+        cone_uniforms.earth_rotation_angle = uniforms.earth_rotation_angle;
+        cone_uniforms.frame_mode = uniforms.frame_mode;
+
+        for (i, model_mat) in cone_models.into_iter().take(MAX_STATIONS).enumerate() {
+            cone_uniforms.models[i] = model_mat.into();
+        }
+
+        queue.write_buffer(&self.cone_uniforms, 0, bytemuck::bytes_of(&cone_uniforms));
     }
 
     pub fn render(&self, render_pass: &mut wgpu::RenderPass<'_>) {
-        let (pipeline, vertex_buffer, vertex_count) = match self.mode {
-            SatelliteRenderMode::Cube => (
-                &self.cube_pipeline,
-                &self.cube_buffer,
-                self.cube_vertex_count,
-            ),
-            SatelliteRenderMode::Dot => {
-                (&self.dot_pipeline, &self.dot_buffer, self.dot_vertex_count)
-            }
-        };
+        render_pass.set_pipeline(&self.cube_pipeline);
+        render_pass.set_bind_group(0, &self.station_uniforms_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.cube_buffer.slice(..));
+        render_pass.draw(0..self.cube_vertex_count, 0..self.station_instances);
 
-        render_pass.set_pipeline(pipeline);
-        render_pass.set_bind_group(0, &self.satellite_uniforms_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        render_pass.draw(0..vertex_count, 0..self.satellite_instances);
+        render_pass.set_pipeline(&self.cone_pipeline);
+        render_pass.set_bind_group(0, &self.cone_uniforms_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.cone_buffer.slice(..));
+        render_pass.draw(0..self.cone_vertex_count, 0..self.station_instances);
     }
 }

@@ -14,6 +14,7 @@ use crate::gpu::pipelines::planet::{
 };
 use crate::{
     gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode},
+    gpu::pipelines::planet::station::StationPipeline,
     model::simulation::Simulation,
 };
 use nalgebra::{Rotation3, Vector3};
@@ -31,6 +32,7 @@ pub struct Pipeline {
     feature_buffer: Option<Buffer>,
     feature_ranges: Vec<(u32, u32)>,
     satellite: SatellitePipeline,
+    station: StationPipeline,
     planet_vertices_count: u32,
     depth_texture: Option<wgpu::Texture>,
     depth_size: (u32, u32),
@@ -230,6 +232,7 @@ impl Pipeline {
         let trajectory = TrajectoryPipeline::new(device, format, &uniform_bind_group_layout);
 
         let satellite = SatellitePipeline::new(device, queue, format);
+        let station = StationPipeline::new(device, queue, format);
 
         Pipeline {
             vertices,
@@ -242,6 +245,7 @@ impl Pipeline {
             feature_buffer: None,
             feature_ranges: Vec::new(),
             satellite,
+            station,
             planet_vertices_count: 0,
             depth_texture: None,
             depth_size: (0, 0),
@@ -301,7 +305,7 @@ impl Pipeline {
             .set_data(device, queue, orbit_points, orbit_ranges);
 
         // Features (station beams, visibility cones, satellite FOV, squares)
-        let (feature_points, feature_ranges) = model.features_line_points(elapsed, earth_spin);
+        let (feature_points, feature_ranges) = model.features_line_points(elapsed);
         self.feature_ranges = feature_ranges;
         if !feature_points.is_empty() {
             let feature_size = bytemuck::cast_slice::<[f32; 3], u8>(&feature_points).len() as u64;
@@ -344,8 +348,26 @@ impl Pipeline {
 
         // Satellites
         self.satellite.set_render_mode(satellite_mode);
-        self.satellite
-            .prepare(queue, camera, model, elapsed, frame_mode_u32);
+        self.satellite.prepare(
+            queue,
+            camera,
+            model,
+            elapsed,
+            frame_mode_u32,
+            sun_dir,
+            earth_spin,
+        );
+
+        // Stations
+        self.station.prepare(
+            queue,
+            camera,
+            model,
+            elapsed,
+            frame_mode_u32,
+            sun_dir,
+            earth_spin,
+        );
 
         queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(planet_triangles));
         self.planet_vertices_count = planet_triangles.len() as u32;
@@ -419,6 +441,7 @@ impl Pipeline {
         }
 
         self.satellite.render(&mut render_pass);
+        self.station.render(&mut render_pass);
     }
 }
 

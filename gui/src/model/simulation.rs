@@ -3,7 +3,7 @@ use crate::{
     model::{ground_station::GroundStation, orbit::Orbit},
 };
 use geometry::tesselation::build_sphere;
-use nalgebra::{Matrix3, Matrix4, Rotation3, Vector3};
+use nalgebra::{Matrix4, Rotation3, Unit, Vector3};
 
 pub const EARTH_RADIUS_KM: f32 = 6371.0;
 
@@ -88,6 +88,42 @@ impl Simulation {
             .collect()
     }
 
+    pub fn ground_station_cone_models(&self, _elapsed: f32) -> Vec<Matrix4<f32>> {
+        let cone_height = EARTH_RADIUS_KM * 0.25;
+        let cone_radius = cone_height * 0.2;
+
+        let base_z = Vector3::new(0.0, 0.0, 1.0);
+
+        self.ground_stations
+            .iter()
+            .map(|station| {
+                let center = station.cartesian();
+                let apex = Vector3::new(center[0], center[1], center[2]);
+                let dir = apex.normalize();
+
+                let rotation = if (dir - base_z).norm() < 1e-6 {
+                    Rotation3::identity()
+                } else if (dir + base_z).norm() < 1e-6 {
+                    Rotation3::from_axis_angle(&Vector3::x_axis(), std::f32::consts::PI)
+                } else {
+                    let axis = Unit::new_normalize(base_z.cross(&dir));
+                    let angle = base_z.dot(&dir).clamp(-1.0, 1.0).acos();
+                    Rotation3::from_axis_angle(&axis, angle)
+                };
+
+                let translate = Matrix4::new_translation(&apex);
+                let rotate = rotation.to_homogeneous();
+                let scale = Matrix4::new_nonuniform_scaling(&Vector3::new(
+                    cone_radius,
+                    cone_radius,
+                    cone_height,
+                ));
+
+                translate * rotate * scale
+            })
+            .collect()
+    }
+
     pub fn satellite_count(&self) -> usize {
         self.orbits.iter().map(|o| o.satellites.len()).sum()
     }
@@ -165,70 +201,6 @@ impl Simulation {
         (center.normalize() * EARTH_RADIUS_KM).into()
     }
 
-    fn local_cone_line_model(cone_length: f32, half_angle: f32, segments: usize) -> Vec<[f32; 3]> {
-        let ring_radius = cone_length * half_angle.tan();
-        let apex = Vector3::new(0.0, 0.0, 0.0);
-
-        let ring_points = (0..segments)
-            .map(|i| {
-                let theta = i as f32 / segments as f32 * std::f32::consts::TAU;
-                Vector3::new(
-                    ring_radius * theta.cos(),
-                    ring_radius * theta.sin(),
-                    cone_length,
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let mut points = Vec::with_capacity(segments * 4);
-
-        // Spokes
-        for ring in &ring_points {
-            points.push(apex.into());
-            points.push((*ring).into());
-        }
-
-        // Base ring edges
-        for i in 0..segments {
-            let a = ring_points[i];
-            let b = ring_points[(i + 1) % segments];
-            points.push(a.into());
-            points.push(b.into());
-        }
-
-        points
-    }
-
-    pub fn station_visibility_cone_lines(&self, earth_rotation_angle: f32) -> Vec<[f32; 3]> {
-        let mut points = Vec::new();
-        let cone_length = EARTH_RADIUS_KM * 0.25;
-        let half_angle = 20.0_f32.to_radians();
-        let segments = 36;
-        let local_model = Self::local_cone_line_model(cone_length, half_angle, segments);
-
-        for station in &self.ground_stations {
-            let apex = Vector3::from(station.cartesian());
-            let dir = apex.normalize();
-
-            let ref_axis = if dir.z.abs() > 0.9 {
-                Vector3::x_axis().into_inner()
-            } else {
-                Vector3::z_axis().into_inner()
-            };
-            let tangent_u = dir.cross(&ref_axis).normalize();
-            let tangent_v = dir.cross(&tangent_u).normalize();
-            let basis = Matrix3::from_columns(&[tangent_u, tangent_v, dir]);
-
-            for local_point in &local_model {
-                let local = Vector3::new(local_point[0], local_point[1], local_point[2]);
-                let point_ecef = apex + basis * local;
-                let point_eci = Self::rotate_ecef_to_eci(point_ecef.into(), earth_rotation_angle);
-                points.push(point_eci);
-            }
-        }
-        points
-    }
-
     pub fn satellite_fov_projected_circles(&self, elapsed: f32) -> Vec<Vec<[f32; 3]>> {
         self.satellite_positions(elapsed)
             .into_iter()
@@ -239,26 +211,9 @@ impl Simulation {
             .collect()
     }
 
-    pub fn features_line_points(
-        &self,
-        elapsed: f32,
-        earth_rotation_angle: f32,
-    ) -> (Vec<[f32; 3]>, Vec<(u32, u32)>) {
+    pub fn features_line_points(&self, elapsed: f32) -> (Vec<[f32; 3]>, Vec<(u32, u32)>) {
         let mut points = Vec::new();
         let mut ranges = Vec::new();
-
-        // Ground station beam circles
-        for station in &self.ground_stations {
-            let circle = self
-                .circle_on_sphere(Self::station_surface_point(station), 0.15, 64)
-                .into_iter()
-                .map(|point| Self::rotate_ecef_to_eci(point, earth_rotation_angle))
-                .collect::<Vec<_>>();
-            let start = points.len() as u32;
-            points.extend(circle);
-            let end = points.len() as u32;
-            ranges.push((start, end - start));
-        }
 
         // Satellite FOV circles
         for circle in self.satellite_fov_projected_circles(elapsed) {
@@ -266,20 +221,6 @@ impl Simulation {
             points.extend(circle);
             let end = points.len() as u32;
             ranges.push((start, end - start));
-        }
-
-        // Station visibility cones as line segments (single strip for now)
-        let cone = self.station_visibility_cone_lines(earth_rotation_angle);
-        if !cone.is_empty() {
-            let start = points.len() as u32;
-            points.extend(cone);
-
-            // Cone lines are emitted as point pairs. Draw each pair as an independent segment
-            // to avoid unintended strip connections between spokes or different stations.
-            let pair_count = (points.len() as u32 - start) / 2;
-            for i in 0..pair_count {
-                ranges.push((start + i * 2, 2));
-            }
         }
 
         (points, ranges)

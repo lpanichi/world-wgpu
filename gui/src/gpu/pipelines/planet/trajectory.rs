@@ -1,8 +1,7 @@
 use iced::{
-    wgpu::{self, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderStages, TextureFormat},
-    widget::shader,
+    wgpu::{self, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, RenderPipeline, RenderPipelineDescriptor,  TextureFormat},
 };
-use crate::gpu::pipelines::planet::vertex::TrajectoryVertex as TexturedTrajectoryVertex;
+use crate::gpu::pipelines::planet::vertex::PositionVertex as TexturedTrajectoryVertex;
 
 pub struct TrajectoryPipeline {
     pipeline: RenderPipeline,
