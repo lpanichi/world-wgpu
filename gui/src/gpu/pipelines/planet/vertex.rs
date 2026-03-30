@@ -53,40 +53,57 @@ impl TextureVertex {
 }
 
 fn unwrap_triangle_uvs(uvs: [f32; 3]) -> [f32; 3] {
-    let mut best = uvs;
-    let mut best_span = f32::INFINITY;
+    let mut indexed = [(0usize, 0.0f32); 3];
+    for (i, u) in uvs.iter().enumerate() {
+        let mut wrapped = *u % 1.0;
+        if wrapped < 0.0 {
+            wrapped += 1.0;
+        }
+        indexed[i] = (i, wrapped);
+    }
 
-    for shift0 in -1..=1 {
-        for shift1 in -1..=1 {
-            for shift2 in -1..=1 {
-                let u0 = uvs[0] + shift0 as f32;
-                let u1 = uvs[1] + shift1 as f32;
-                let u2 = uvs[2] + shift2 as f32;
+    indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
-                let min_u = u0.min(u1.min(u2));
-                let max_u = u0.max(u1.max(u2));
-                let span = max_u - min_u;
+    let mut max_gap = -1.0f32;
+    let mut cut_index = 0usize;
+    for i in 0..3 {
+        let current = indexed[i].1;
+        let next = if i == 2 {
+            indexed[0].1 + 1.0
+        } else {
+            indexed[i + 1].1
+        };
 
-                if span < best_span {
-                    best_span = span;
-                    best = [u0, u1, u2];
-                }
-            }
+        let gap = next - current;
+        if gap > max_gap {
+            max_gap = gap;
+            cut_index = (i + 1) % 3;
         }
     }
 
-    best
+    let start = indexed[cut_index].1;
+    let mut out = [0.0; 3];
+
+    for (original_index, mut u) in indexed {
+        if u < start {
+            u += 1.0;
+        }
+        out[original_index] = u;
+    }
+
+    out
 }
 
-pub fn into_textured_vertex(triangles: Vec<NalgebraTriangle>) -> Vec<TextureVertex> {
+pub fn into_textured_vertex(triangles: Vec<NalgebraTriangle>, radius: f32) -> Vec<TextureVertex> {
     triangles
         .iter()
         .flat_map(|tri| {
-            let mut points = [(Vector3::new(0.0, 0.0, 0.0), 0.0, 0.0); 3];
+            let mut points = [(Vector3::new(0.0, 0.0, 0.0), 0.0, 0.0, false); 3];
 
             for (i, vert) in tri.iter().enumerate() {
                 let xyz: [f32; 3] = (*vert).into();
-                let rthetaphi = wgpu_cartesian_to_spherical(&xyz);
+                let scaled_xyz = [xyz[0] * radius, xyz[1] * radius, xyz[2] * radius];
+                let rthetaphi = wgpu_cartesian_to_spherical(&scaled_xyz);
 
                 let theta = rthetaphi[1];
                 let phi = rthetaphi[2];
@@ -95,8 +112,9 @@ pub fn into_textured_vertex(triangles: Vec<NalgebraTriangle>) -> Vec<TextureVert
                 let u = theta / (2.0 * std::f32::consts::PI);
                 let v = (1.0 - ((latitude + std::f32::consts::FRAC_PI_2) / std::f32::consts::PI))
                     .clamp(0.0, 1.0);
+                let is_pole = xyz[0].hypot(xyz[1]) < 1e-4;
 
-                points[i] = (Vector3::from(xyz), u, v);
+                points[i] = (Vector3::from(scaled_xyz), u, v, is_pole);
             }
 
             let (u0, u1, u2) = (points[0].1, points[1].1, points[2].1);
@@ -106,9 +124,33 @@ pub fn into_textured_vertex(triangles: Vec<NalgebraTriangle>) -> Vec<TextureVert
             points[1].1 = best_u[1];
             points[2].1 = best_u[2];
 
+            let mut non_pole_sum = 0.0;
+            let mut non_pole_count = 0;
+            for (_, u, _, is_pole) in points.iter() {
+                if !is_pole {
+                    non_pole_sum += *u;
+                    non_pole_count += 1;
+                }
+            }
+
+            if non_pole_count > 0 {
+                let non_pole_avg = non_pole_sum / non_pole_count as f32;
+                for (_, u, _, is_pole) in points.iter_mut() {
+                    if *is_pole {
+                        *u = non_pole_avg;
+                    }
+                }
+
+                let (u0, u1, u2) = (points[0].1, points[1].1, points[2].1);
+                let best_u = unwrap_triangle_uvs([u0, u1, u2]);
+                points[0].1 = best_u[0];
+                points[1].1 = best_u[1];
+                points[2].1 = best_u[2];
+            }
+
             points
                 .iter()
-                .map(|(pos, u, v)| TextureVertex {
+                .map(|(pos, u, v, _)| TextureVertex {
                     position: [pos.x, pos.y, pos.z],
                     texture_coords: [*u, *v],
                 })
@@ -247,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_uv_triangle_span_at_most_half_round() {
-        let vertices = into_textured_vertex(build_sphere());
+        let vertices = into_textured_vertex(build_sphere(), 6371.0);
         assert!(vertices.len() > 0);
 
         for tri_idx in 0..(vertices.len() / 3) {
@@ -270,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_uv_triangles_no_large_overlap() {
-        let in_vertices = into_textured_vertex(build_sphere_icosahedron(2));
+        let in_vertices = into_textured_vertex(build_sphere_icosahedron(2), 6371.0);
         let tri_count = in_vertices.len() / 3;
         let epsilon = 1e-6;
 

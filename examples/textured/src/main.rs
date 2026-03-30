@@ -2,7 +2,10 @@ use env_logger::Env;
 use gui::{
     gpu::pipelines::planet::{camera::Camera, satellite::SatelliteRenderMode},
     model::{
-        ground_station::GroundStation, orbit::Orbit, satellite::Satellite, simulation::Simulation,
+        ground_station::GroundStation,
+        orbit::Orbit,
+        satellite::Satellite,
+        simulation::{EARTH_RADIUS_KM, Simulation},
     },
 };
 use iced::{
@@ -33,7 +36,11 @@ enum Message {
     RemoveSatellite(usize),
     ToggleOrbit(usize),
     ToggleSatelliteMode,
+    ToggleFrame,
     TogglePause,
+    IncreaseTimeScale,
+    DecreaseTimeScale,
+    ResetTimeScale,
     AddStation,
     RemoveStation,
     ResetTime,
@@ -85,8 +92,11 @@ impl Textured {
             Message::AddOrbit => {
                 self.modify_model(|model| {
                     let idx = model.orbits.len();
+                    let altitude_km = 500.0 + idx as f32 * 150.0;
+                    let semi_major_axis = EARTH_RADIUS_KM + altitude_km;
+                    let period_seconds = Orbit::circular_period_seconds(semi_major_axis);
                     model.orbits.push(
-                        Orbit::builder(6.0 + idx as f32 * 2.0, 20.0 + idx as f32 * 5.0)
+                        Orbit::builder(semi_major_axis, period_seconds)
                             .inclination(10.0 + idx as f32 * 5.0)
                             .raan(15.0 + idx as f32 * 10.0)
                             .show_orbit(true)
@@ -142,6 +152,13 @@ impl Textured {
                     SatelliteRenderMode::Dot => SatelliteRenderMode::Cube,
                 };
             }
+            Message::ToggleFrame => {
+                self.program.frame_mode = match self.program.frame_mode {
+                    crate::program::FrameMode::Eci => crate::program::FrameMode::Ecef,
+                    crate::program::FrameMode::Ecef => crate::program::FrameMode::Eci,
+                };
+                self.status_message = format!("Frame mode: {:?}", self.program.frame_mode);
+            }
             Message::TogglePause => {
                 self.program.toggle_pause();
                 self.status_message = if self.program.paused {
@@ -149,6 +166,23 @@ impl Textured {
                 } else {
                     "Running".to_string()
                 };
+            }
+            Message::IncreaseTimeScale => {
+                let new_scale = if self.program.time_scale < 1.0 {
+                    1.0
+                } else {
+                    self.program.time_scale * 2.0
+                };
+                self.program.set_time_scale(new_scale);
+                self.status_message = format!("Simulation speed: {:.1}x", self.program.time_scale);
+            }
+            Message::DecreaseTimeScale => {
+                self.program.set_time_scale(self.program.time_scale * 0.5);
+                self.status_message = format!("Simulation speed: {:.1}x", self.program.time_scale);
+            }
+            Message::ResetTimeScale => {
+                self.program.set_time_scale(1.0);
+                self.status_message = "Simulation speed reset to 1x".to_string();
             }
             Message::ResetTime => {
                 self.program.reset_time();
@@ -214,6 +248,12 @@ impl Textured {
                         SatelliteRenderMode::Cube => SatelliteRenderMode::Dot,
                         SatelliteRenderMode::Dot => SatelliteRenderMode::Cube,
                     };
+                }
+                Key::Character(ch) if ch == "+" || ch == "=" => {
+                    self.update(Message::IncreaseTimeScale);
+                }
+                Key::Character(ch) if ch == "-" || ch == "_" => {
+                    self.update(Message::DecreaseTimeScale);
                 }
                 _ => (),
             }
@@ -289,9 +329,10 @@ impl Textured {
                 }
             }
             iced::event::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
+                let step_km = 50.0;
                 let amount = match delta {
-                    iced::mouse::ScrollDelta::Lines { y, .. } => y * 0.5,
-                    iced::mouse::ScrollDelta::Pixels { y, .. } => y * 0.01,
+                    iced::mouse::ScrollDelta::Lines { y, .. } => y.signum() * step_km,
+                    iced::mouse::ScrollDelta::Pixels { y, .. } => y.signum() * step_km,
                 };
                 self.program.camera.dolly(amount);
             }
@@ -326,16 +367,22 @@ impl Textured {
         let mut content = column![
             text(format!("Selected object: {}", self.status_message)).size(16),
             text(format!(
-                "Distance: {}",
+                "Select-ray distance: {}",
                 match self.selected_hit_distance {
                     Some(d) => format!("{:.3}", d),
                     None => "N/A".to_string(),
                 }
             ))
             .size(14),
+            text(format!(
+                "Altitude above Earth: {:.3} km",
+                self.program.camera.eye.coords.norm() - gui::model::simulation::EARTH_RADIUS_KM
+            ))
+            .size(14),
             text(format!("Orbit count: {}", meta.orbits.len())).size(14),
             text(format!("Station count: {}", meta.ground_stations.len())).size(14),
             text(format!("Sat render: {:?}", self.program.satellite_mode)).size(14),
+            text(format!("Simulation speed: {:.1}x", self.program.time_scale)).size(14),
             text(format!(
                 "Time: {:.2} (paused={})",
                 self.program.elapsed_time(),
@@ -345,6 +392,13 @@ impl Textured {
             row![
                 button("Pause/Resume").on_press(Message::TogglePause),
                 button("Reset Time").on_press(Message::ResetTime),
+                button("Toggle Frame").on_press(Message::ToggleFrame),
+            ]
+            .spacing(8),
+            row![
+                button("Slower").on_press(Message::DecreaseTimeScale),
+                button("Faster").on_press(Message::IncreaseTimeScale),
+                button("1x").on_press(Message::ResetTimeScale),
             ]
             .spacing(8),
             row![
@@ -405,9 +459,13 @@ impl Textured {
 
 impl Default for Textured {
     fn default() -> Self {
+        let earth_radius = EARTH_RADIUS_KM;
+        let orbit1_a = earth_radius + 500.0;
+        let orbit2_a = earth_radius + 800.0;
+
         let model = Simulation::builder()
             .add_orbit(
-                Orbit::builder(6.0, 20.0)
+                Orbit::builder(orbit1_a, Orbit::circular_period_seconds(orbit1_a))
                     .inclination(20.0)
                     .raan(30.0)
                     .arg_perigee(0.0)
@@ -417,7 +475,7 @@ impl Default for Textured {
                     .build(),
             )
             .add_orbit(
-                Orbit::builder(8.0, 30.0)
+                Orbit::builder(orbit2_a, Orbit::circular_period_seconds(orbit2_a))
                     .inclination(45.0)
                     .raan(80.0)
                     .arg_perigee(30.0)
@@ -429,7 +487,18 @@ impl Default for Textured {
             .add_ground_station(GroundStation::new("Station B", -20.0, 100.0))
             .build();
 
-        let camera = Camera::new([0., 6., -15.].into(), [0., 0., 0.].into(), 200., 200.);
+        let camera_distance = earth_radius + 10_000.0;
+        let camera = Camera::new(
+            [
+                -camera_distance * 0.7,
+                -camera_distance * 0.7,
+                camera_distance * 0.35,
+            ]
+            .into(),
+            [0.0, 0.0, 0.0].into(),
+            200.,
+            200.,
+        );
 
         let (mut panes, root_pane) = pane_grid::State::new(PaneState::new(0));
         let _ = panes.split(pane_grid::Axis::Vertical, root_pane, PaneState::new(1));
@@ -440,8 +509,10 @@ impl Default for Textured {
                 camera,
                 start_time: std::time::Instant::now(),
                 satellite_mode: SatelliteRenderMode::Dot,
+                frame_mode: crate::program::FrameMode::Eci,
                 paused: false,
                 paused_elapsed: 0.0,
+                time_scale: 120.0,
                 pick_radius_scale: 2.0,
             },
             panes,

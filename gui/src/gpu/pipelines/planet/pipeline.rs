@@ -16,7 +16,7 @@ use crate::{
     gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode},
     model::simulation::Simulation,
 };
-use nalgebra::Vector3;
+use nalgebra::{Rotation3, Vector3};
 
 const ORBIT_SAMPLES: usize = 128;
 
@@ -259,6 +259,7 @@ impl Pipeline {
         camera: &Camera,
         elapsed: f32,
         satellite_mode: SatelliteRenderMode,
+        frame_mode: u32,
     ) {
         let width = viewport.physical_width();
         let height = viewport.physical_height();
@@ -289,13 +290,18 @@ impl Pipeline {
             mapped_at_creation: false,
         });
 
+        let elapsed_secs = elapsed as f64;
+        let day_of_year = 172 + ((elapsed_secs / 86400.0) as u32 % 365);
+        let hour = (elapsed_secs / 3600.0) % 24.0;
+        let earth_spin = Astral::earth_rotation_angle(day_of_year, hour) as f32;
+
         // Fill orbit trajectory points and ranges.
         let (orbit_points, orbit_ranges) = model.orbit_line_points(ORBIT_SAMPLES);
         self.trajectory
             .set_data(device, queue, orbit_points, orbit_ranges);
 
         // Features (station beams, visibility cones, satellite FOV, squares)
-        let (feature_points, feature_ranges) = model.features_line_points(elapsed);
+        let (feature_points, feature_ranges) = model.features_line_points(elapsed, earth_spin);
         self.feature_ranges = feature_ranges;
         if !feature_points.is_empty() {
             let feature_size = bytemuck::cast_slice::<[f32; 3], u8>(&feature_points).len() as u64;
@@ -312,22 +318,34 @@ impl Pipeline {
         }
 
         // Sun direction as directional light. Use astronomical position relative to Earth.
-        let elapsed_secs = elapsed as f64;
-        let day_of_year = 172 + ((elapsed_secs / 86400.0) as u32 % 365);
-        let hour = (elapsed_secs / 3600.0) % 24.0;
         let sun_inertial = Astral::sun_inertial_position(day_of_year, hour);
-        let sun_dir = Vector3::new(
+        let sun_dir_eci = Vector3::new(
             sun_inertial[0] as f32,
             sun_inertial[1] as f32,
             sun_inertial[2] as f32,
         )
         .normalize();
 
-        let uniforms = Uniforms::new(camera, [sun_dir.x, sun_dir.y, sun_dir.z]);
+        let frame_mode_u32 = frame_mode;
+        let sun_dir = if frame_mode_u32 == 0 {
+            sun_dir_eci
+        } else {
+            // Convert inertial light direction into Earth-fixed frame.
+            let earth_rot = Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_spin);
+            earth_rot * sun_dir_eci
+        };
+
+        let uniforms = Uniforms::new(
+            camera,
+            [sun_dir.x, sun_dir.y, sun_dir.z],
+            earth_spin,
+            frame_mode_u32,
+        );
 
         // Satellites
         self.satellite.set_render_mode(satellite_mode);
-        self.satellite.prepare(queue, camera, model, elapsed);
+        self.satellite
+            .prepare(queue, camera, model, elapsed, frame_mode_u32);
 
         queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(planet_triangles));
         self.planet_vertices_count = planet_triangles.len() as u32;

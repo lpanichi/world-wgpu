@@ -1,10 +1,12 @@
+use crate::astro::Astral;
+use crate::gpu::pipelines::planet::camera::Camera;
 use crate::gpu::pipelines::planet::vertex::TrajectoryVertex;
-use crate::{gpu::pipelines::planet::camera::Camera, model::simulation::Simulation};
+use crate::model::simulation::{EARTH_RADIUS_KM, Simulation};
 use iced::wgpu::{
     self, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,
     BufferDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderStages, TextureFormat,
 };
-use nalgebra::Vector3;
+use nalgebra::{Rotation3, Vector3};
 
 const MAX_SATELLITES: usize = 64;
 
@@ -15,6 +17,10 @@ pub struct SatelliteUniforms {
     pub camera_right: [f32; 4],
     pub camera_up: [f32; 4],
     pub sun_direction: [f32; 4],
+    pub earth_rotation_angle: f32,
+    pub frame_mode: u32,
+    pub satellite_scale: f32,
+    pub _padding: u32,
     pub satellite_meta: [u32; 4],
     pub models: [[[f32; 4]; 4]; MAX_SATELLITES],
 }
@@ -26,6 +32,10 @@ impl SatelliteUniforms {
             camera_right: [1.0, 0.0, 0.0, 0.0],
             camera_up: [0.0, 1.0, 0.0, 0.0],
             sun_direction: [1.0, 0.0, 0.0, 0.0],
+            earth_rotation_angle: 0.0,
+            frame_mode: 0,
+            satellite_scale: 1.0,
+            _padding: 0,
             satellite_meta: [0; 4],
             models: [nalgebra::Matrix4::identity().into(); MAX_SATELLITES],
         }
@@ -362,9 +372,12 @@ impl SatellitePipeline {
         camera: &Camera,
         model: &Simulation,
         elapsed: f32,
+        frame_mode: u32,
     ) {
         let mut satellite_models = model.satellite_models(elapsed);
-        let station_models = model.ground_station_models();
+        let satellite_count = satellite_models.len();
+
+        let station_models = model.ground_station_models(elapsed);
         let station_count = station_models
             .len()
             .min(MAX_SATELLITES - satellite_models.len());
@@ -376,18 +389,35 @@ impl SatellitePipeline {
 
         let mut uniforms = SatelliteUniforms::new();
         uniforms.view_proj = camera.build_view_projection_matrix().into();
+        uniforms.satellite_meta[0] = self.satellite_instances;
+        uniforms.satellite_meta[1] = satellite_count as u32;
+        uniforms.satellite_meta[2] = station_count as u32;
 
         let elapsed_secs = elapsed as f64;
         let day_of_year = 172 + ((elapsed_secs / 86400.0) as u32 % 365);
         let hour = (elapsed_secs / 3600.0) % 24.0;
         let sun_inertial = crate::astro::Astral::sun_inertial_position(day_of_year, hour);
-        let sun_dir = Vector3::new(
+        let sun_dir_eci = Vector3::new(
             sun_inertial[0] as f32,
             sun_inertial[1] as f32,
             sun_inertial[2] as f32,
         )
         .normalize();
+
+        let earth_rotation_angle = Astral::earth_rotation_angle(day_of_year, hour) as f32;
+        let sun_dir = if frame_mode == 0 {
+            sun_dir_eci
+        } else {
+            // Convert inertial light direction into Earth-fixed frame.
+            let earth_rot = Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_rotation_angle);
+            earth_rot * sun_dir_eci
+        };
+
         uniforms.sun_direction = [sun_dir.x, sun_dir.y, sun_dir.z, 0.0];
+
+        uniforms.earth_rotation_angle = earth_rotation_angle;
+        uniforms.frame_mode = frame_mode;
+        uniforms.satellite_scale = EARTH_RADIUS_KM * Simulation::SATELLITE_SCALE_FACTOR;
 
         let camera_forward = (camera.target - camera.eye).normalize();
         let camera_right = camera_forward.cross(&camera.up.into_inner()).normalize();
@@ -395,10 +425,6 @@ impl SatellitePipeline {
 
         uniforms.camera_right = [camera_right.x, camera_right.y, camera_right.z, 0.0];
         uniforms.camera_up = [camera_up.x, camera_up.y, camera_up.z, 0.0];
-
-        uniforms.satellite_meta[0] = self.satellite_instances;
-        uniforms.satellite_meta[1] = satellite_models.len() as u32;
-        uniforms.satellite_meta[2] = station_count as u32;
 
         for (i, model_mat) in satellite_models
             .into_iter()

@@ -26,9 +26,15 @@ impl Orbit {
         }
     }
 
+    pub fn circular_period_seconds(semi_major_axis_km: f32) -> f32 {
+        let a = semi_major_axis_km.max(1.0) as f64;
+        let mu = crate::astro::constants::MU_EARTH;
+        (2.0 * std::f64::consts::PI * (a.powi(3) / mu).sqrt()) as f32
+    }
+
     pub fn position(&self, elapsed: f32, satellite: &Satellite) -> [f32; 3] {
-        let mean_anomaly = (elapsed / self.period_seconds * std::f32::consts::TAU
-            + satellite.phase_offset_rad)
+        let period = self.period_seconds.max(f32::EPSILON);
+        let mean_anomaly = (elapsed / period * std::f32::consts::TAU + satellite.phase_offset_rad)
             .rem_euclid(std::f32::consts::TAU);
 
         let x_orb = self.semi_major_axis * mean_anomaly.cos();

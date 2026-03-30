@@ -3,7 +3,9 @@ use crate::{
     model::{ground_station::GroundStation, orbit::Orbit},
 };
 use geometry::tesselation::build_sphere;
-use nalgebra::{Matrix4, Vector3};
+use nalgebra::{Matrix3, Matrix4, Rotation3, Vector3};
+
+pub const EARTH_RADIUS_KM: f32 = 6371.0;
 
 #[derive(Debug, Clone)]
 pub struct Simulation {
@@ -15,7 +17,7 @@ pub struct Simulation {
 impl Simulation {
     pub fn builder() -> SimulationBuilder {
         let sphere = build_sphere();
-        let planet_triangles = into_textured_vertex(sphere);
+        let planet_triangles = into_textured_vertex(sphere, EARTH_RADIUS_KM);
 
         SimulationBuilder {
             orbits: Vec::new(),
@@ -60,22 +62,20 @@ impl Simulation {
         positions
     }
 
+    pub const SATELLITE_SCALE_FACTOR: f32 = 0.005; // relative to Earth radius
+
     pub fn satellite_models(&self, elapsed: f32) -> Vec<Matrix4<f32>> {
+        let scale = Matrix4::new_scaling(EARTH_RADIUS_KM * Self::SATELLITE_SCALE_FACTOR);
         self.satellite_positions(elapsed)
             .into_iter()
             .map(|pos| {
                 let translation = Matrix4::new_translation(&Vector3::new(pos[0], pos[1], pos[2]));
-                let scale = Matrix4::new_scaling(0.08);
                 translation * scale
             })
             .collect()
     }
 
-    pub fn satellite_count(&self) -> usize {
-        self.orbits.iter().map(|o| o.satellites.len()).sum()
-    }
-
-    pub fn ground_station_models(&self) -> Vec<Matrix4<f32>> {
+    pub fn ground_station_models(&self, _elapsed: f32) -> Vec<Matrix4<f32>> {
         self.ground_stations
             .iter()
             .map(|station| {
@@ -88,14 +88,24 @@ impl Simulation {
             .collect()
     }
 
+    pub fn satellite_count(&self) -> usize {
+        self.orbits.iter().map(|o| o.satellites.len()).sum()
+    }
+
     pub fn circle_on_sphere(
         &self,
         center: [f32; 3],
         angular_radius: f32,
         segments: usize,
     ) -> Vec<[f32; 3]> {
-        let n = Vector3::new(center[0], center[1], center[2]).normalize();
-        let up = Vector3::new(0.0, 1.0, 0.0);
+        let center_vec = Vector3::new(center[0], center[1], center[2]);
+        let radius = center_vec.norm();
+        if radius <= f32::EPSILON {
+            return Vec::new();
+        }
+
+        let n = center_vec / radius;
+        let up = Vector3::new(0.0, 0.0, 1.0);
         let right = Vector3::new(1.0, 0.0, 0.0);
         let tangent = if n.dot(&up).abs() > 0.9 { right } else { up };
         let u = n.cross(&tangent).normalize();
@@ -106,14 +116,20 @@ impl Simulation {
                 let theta = i as f32 / segments as f32 * std::f32::consts::TAU;
                 let dir = (n * angular_radius.cos())
                     + (u * theta.cos() + v * theta.sin()) * angular_radius.sin();
-                dir.normalize().into()
+                (dir.normalize() * radius).into()
             })
             .collect()
     }
 
     pub fn square_on_sphere(&self, center: [f32; 3], half_angle: f32) -> Vec<[f32; 3]> {
-        let n = Vector3::new(center[0], center[1], center[2]).normalize();
-        let up = Vector3::new(0.0, 1.0, 0.0);
+        let center_vec = Vector3::new(center[0], center[1], center[2]);
+        let radius = center_vec.norm();
+        if radius <= f32::EPSILON {
+            return Vec::new();
+        }
+
+        let n = center_vec / radius;
+        let up = Vector3::new(0.0, 0.0, 1.0);
         let right = Vector3::new(1.0, 0.0, 0.0);
         let tangent = if n.dot(&up).abs() > 0.9 { right } else { up };
         let u = n.cross(&tangent).normalize();
@@ -132,26 +148,82 @@ impl Simulation {
             .map(|(cx, cy)| {
                 let local = u * (cx * half_angle).tan() + v * (cy * half_angle).tan();
                 let point = (n + local).normalize();
-                point.into()
+                (point * radius).into()
             })
             .collect()
     }
 
-    pub fn station_visibility_cone_lines(&self) -> Vec<[f32; 3]> {
+    fn rotate_ecef_to_eci(point: [f32; 3], earth_rotation_angle: f32) -> [f32; 3] {
+        let vec = Vector3::new(point[0], point[1], point[2]);
+        let rot = Rotation3::from_axis_angle(&Vector3::z_axis(), earth_rotation_angle);
+        let out = rot * vec;
+        [out.x, out.y, out.z]
+    }
+
+    fn station_surface_point(station: &GroundStation) -> [f32; 3] {
+        let center = Vector3::from(station.cartesian());
+        (center.normalize() * EARTH_RADIUS_KM).into()
+    }
+
+    fn local_cone_line_model(cone_length: f32, half_angle: f32, segments: usize) -> Vec<[f32; 3]> {
+        let ring_radius = cone_length * half_angle.tan();
+        let apex = Vector3::new(0.0, 0.0, 0.0);
+
+        let ring_points = (0..segments)
+            .map(|i| {
+                let theta = i as f32 / segments as f32 * std::f32::consts::TAU;
+                Vector3::new(
+                    ring_radius * theta.cos(),
+                    ring_radius * theta.sin(),
+                    cone_length,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let mut points = Vec::with_capacity(segments * 4);
+
+        // Spokes
+        for ring in &ring_points {
+            points.push(apex.into());
+            points.push((*ring).into());
+        }
+
+        // Base ring edges
+        for i in 0..segments {
+            let a = ring_points[i];
+            let b = ring_points[(i + 1) % segments];
+            points.push(a.into());
+            points.push(b.into());
+        }
+
+        points
+    }
+
+    pub fn station_visibility_cone_lines(&self, earth_rotation_angle: f32) -> Vec<[f32; 3]> {
         let mut points = Vec::new();
+        let cone_length = EARTH_RADIUS_KM * 0.25;
+        let half_angle = 20.0_f32.to_radians();
+        let segments = 36;
+        let local_model = Self::local_cone_line_model(cone_length, half_angle, segments);
 
         for station in &self.ground_stations {
-            let center = Vector3::from(station.cartesian());
-            let dir = center.normalize();
-            let apex = (center + dir * 0.5).normalize();
+            let apex = Vector3::from(station.cartesian());
+            let dir = apex.normalize();
 
-            let ring = self.circle_on_sphere(center.into(), 0.25, 36);
+            let ref_axis = if dir.z.abs() > 0.9 {
+                Vector3::x_axis().into_inner()
+            } else {
+                Vector3::z_axis().into_inner()
+            };
+            let tangent_u = dir.cross(&ref_axis).normalize();
+            let tangent_v = dir.cross(&tangent_u).normalize();
+            let basis = Matrix3::from_columns(&[tangent_u, tangent_v, dir]);
 
-            points.push(center.into());
-            points.push(apex.into());
-            for ring_point in ring.iter() {
-                points.push(*ring_point);
-                points.push(apex.into());
+            for local_point in &local_model {
+                let local = Vector3::new(local_point[0], local_point[1], local_point[2]);
+                let point_ecef = apex + basis * local;
+                let point_eci = Self::rotate_ecef_to_eci(point_ecef.into(), earth_rotation_angle);
+                points.push(point_eci);
             }
         }
         points
@@ -161,19 +233,27 @@ impl Simulation {
         self.satellite_positions(elapsed)
             .into_iter()
             .map(|sat| {
-                let subpoint = Vector3::new(sat[0], sat[1], sat[2]).normalize();
+                let subpoint = Vector3::new(sat[0], sat[1], sat[2]).normalize() * EARTH_RADIUS_KM;
                 self.circle_on_sphere(subpoint.into(), 0.25, 64)
             })
             .collect()
     }
 
-    pub fn features_line_points(&self, elapsed: f32) -> (Vec<[f32; 3]>, Vec<(u32, u32)>) {
+    pub fn features_line_points(
+        &self,
+        elapsed: f32,
+        earth_rotation_angle: f32,
+    ) -> (Vec<[f32; 3]>, Vec<(u32, u32)>) {
         let mut points = Vec::new();
         let mut ranges = Vec::new();
 
         // Ground station beam circles
         for station in &self.ground_stations {
-            let circle = self.circle_on_sphere(station.cartesian(), 0.15, 64);
+            let circle = self
+                .circle_on_sphere(Self::station_surface_point(station), 0.15, 64)
+                .into_iter()
+                .map(|point| Self::rotate_ecef_to_eci(point, earth_rotation_angle))
+                .collect::<Vec<_>>();
             let start = points.len() as u32;
             points.extend(circle);
             let end = points.len() as u32;
@@ -189,21 +269,17 @@ impl Simulation {
         }
 
         // Station visibility cones as line segments (single strip for now)
-        let cone = self.station_visibility_cone_lines();
+        let cone = self.station_visibility_cone_lines(earth_rotation_angle);
         if !cone.is_empty() {
             let start = points.len() as u32;
             points.extend(cone);
-            let end = points.len() as u32;
-            ranges.push((start, end - start));
-        }
 
-        // Squares around stations
-        for station in &self.ground_stations {
-            let square = self.square_on_sphere(station.cartesian(), 0.2);
-            let start = points.len() as u32;
-            points.extend(square);
-            let end = points.len() as u32;
-            ranges.push((start, end - start));
+            // Cone lines are emitted as point pairs. Draw each pair as an independent segment
+            // to avoid unintended strip connections between spokes or different stations.
+            let pair_count = (points.len() as u32 - start) / 2;
+            for i in 0..pair_count {
+                ranges.push((start + i * 2, 2));
+            }
         }
 
         (points, ranges)

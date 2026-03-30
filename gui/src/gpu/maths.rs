@@ -2,14 +2,14 @@ use std::f32::consts::PI;
 
 use astro::constants::EARTH_RADIUS;
 
-/// Convert xyz to r, theata, phi for graphical rendering.
+/// Convert xyz to r, theta, phi for graphical rendering.
 /// x axis is horizontal to the screen
 /// y axis is vertical to the screen
 /// z = x ^ y so it goes throught the screen to the developer
 ///
 /// r is trivial
-/// theta is the angle from the z-axis, in the xz plan (azimuth)
-/// phi is the angle between the vector and the xz plan (elevation)
+/// theta is the angle around the z-axis in the xy plane (azimuth)
+/// phi is the colatitude from +z
 ///
 /// # Arguments
 ///
@@ -21,17 +21,15 @@ use astro::constants::EARTH_RADIUS;
 ///
 /// # Examples
 ///
-/// ```
-/// use crate::...;
-///
-/// let _ = wgpu_cartesian_to_spherical();
+/// ```ignore
+/// let _ = gui::gpu::maths::wgpu_cartesian_to_spherical(&[1.0, 0.0, 0.0]);
 /// ```
 pub fn wgpu_cartesian_to_spherical(xyz: &[f32; 3]) -> [f32; 3] {
     let [x, y, z] = xyz;
     let r = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
-    let theta = x.atan2(*z) % (2.0 * PI);
+    let theta = y.atan2(*x) % (2.0 * PI);
     let theta = if theta < 0.0 { theta + 2. * PI } else { theta };
-    let phi = (y / r).clamp(-1.0, 1.0).acos();
+    let phi = (z / r).clamp(-1.0, 1.0).acos();
     [r, theta, phi]
 }
 
@@ -84,7 +82,7 @@ mod maths_tests {
     #[test]
     fn test_spherical_to_latlon_mapping() {
         // top of the sphere should map to v near 0
-        let xyz_top = [0.0, 1.0, 0.0];
+        let xyz_top = [0.0, 0.0, 1.0];
         let rthetaphi = wgpu_cartesian_to_spherical(&xyz_top);
         let theta = rthetaphi[1];
         let phi = rthetaphi[2];

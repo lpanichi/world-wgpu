@@ -1,9 +1,10 @@
 use gui::{
+    astro::Astral,
     gpu::pipelines::planet::{camera::Camera, pipeline::Pipeline, satellite::SatelliteRenderMode},
     model::simulation::Simulation,
 };
 use iced::{Rectangle, mouse, wgpu, widget::shader};
-use nalgebra::{Point3, Point4, Vector3};
+use nalgebra::{Point3, Point4, Rotation3, Vector3};
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -14,13 +15,21 @@ pub enum SelectedObject {
     None,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum FrameMode {
+    Eci,
+    Ecef,
+}
+
 pub struct Program {
     pub model: Arc<Simulation>,
     pub camera: Camera,
     pub start_time: std::time::Instant,
     pub satellite_mode: SatelliteRenderMode,
+    pub frame_mode: FrameMode,
     pub paused: bool,
     pub paused_elapsed: f32,
+    pub time_scale: f32,
     pub pick_radius_scale: f32,
 }
 
@@ -29,8 +38,16 @@ impl Program {
         if self.paused {
             self.paused_elapsed
         } else {
-            self.paused_elapsed + self.start_time.elapsed().as_secs_f32()
+            self.paused_elapsed + self.start_time.elapsed().as_secs_f32() * self.time_scale
         }
+    }
+
+    pub fn set_time_scale(&mut self, new_scale: f32) {
+        let clamped = new_scale.clamp(0.1, 50_000.0);
+        let elapsed = self.elapsed_time();
+        self.paused_elapsed = elapsed;
+        self.start_time = std::time::Instant::now();
+        self.time_scale = clamped;
     }
 
     pub fn toggle_pause(&mut self) {
@@ -47,6 +64,13 @@ impl Program {
         self.start_time = std::time::Instant::now();
         self.paused_elapsed = 0.0;
         self.paused = false;
+    }
+
+    fn earth_rotation_angle(&self) -> f32 {
+        let elapsed_secs = self.elapsed_time() as f64;
+        let day_of_year = 172 + ((elapsed_secs / 86400.0) as u32 % 365);
+        let hour = (elapsed_secs / 3600.0) % 24.0;
+        Astral::earth_rotation_angle(day_of_year, hour) as f32
     }
 
     pub fn world_ray_from_cursor(
@@ -122,15 +146,35 @@ impl Program {
             }
         };
 
-        consider_object(SelectedObject::Earth, Point3::origin(), 1.0);
+        consider_object(
+            SelectedObject::Earth,
+            Point3::origin(),
+            gui::model::simulation::EARTH_RADIUS_KM,
+        );
 
-        let satellite_radius = 0.08;
-        let station_radius = 0.1;
+        let elapsed = self.elapsed_time();
+        let earth_rotation_angle = self.earth_rotation_angle();
+        let ecef_to_eci = Rotation3::from_axis_angle(&Vector3::z_axis(), earth_rotation_angle);
+        let eci_to_ecef = Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_rotation_angle);
+
+        let dot_radius = gui::model::simulation::EARTH_RADIUS_KM
+            * gui::model::simulation::Simulation::SATELLITE_SCALE_FACTOR;
+        let satellite_radius = match self.satellite_mode {
+            SatelliteRenderMode::Dot => dot_radius,
+            SatelliteRenderMode::Cube => dot_radius * 0.25,
+        };
 
         for (orbit_index, orbit) in self.model.orbits.iter().enumerate() {
             for sat in orbit.satellites.iter() {
-                let pos = orbit.position(self.elapsed_time(), sat);
-                let center = Point3::new(pos[0], pos[1], pos[2]);
+                let pos_eci = orbit.position(elapsed, sat);
+                let center_eci = Vector3::new(pos_eci[0], pos_eci[1], pos_eci[2]);
+                let center = match self.frame_mode {
+                    FrameMode::Eci => Point3::new(center_eci.x, center_eci.y, center_eci.z),
+                    FrameMode::Ecef => {
+                        let v = eci_to_ecef * center_eci;
+                        Point3::new(v.x, v.y, v.z)
+                    }
+                };
                 consider_object(
                     SelectedObject::Satellite(format!("{}:{}", orbit_index, sat.name)),
                     center,
@@ -141,7 +185,17 @@ impl Program {
 
         for station in &self.model.ground_stations {
             let cart = station.cartesian();
-            let center = Point3::new(cart[0], cart[1], cart[2]);
+            let center_ecef = Vector3::new(cart[0], cart[1], cart[2]);
+            let center = match self.frame_mode {
+                FrameMode::Eci => {
+                    let v = ecef_to_eci * center_ecef;
+                    Point3::new(v.x, v.y, v.z)
+                }
+                FrameMode::Ecef => Point3::new(center_ecef.x, center_ecef.y, center_ecef.z),
+            };
+
+            // Model cube vertices are in [-0.1, 0.1], so bounding-sphere radius scales by 0.1*sqrt(3).
+            let station_radius = (0.173_205_08 * station.cube_size).max(25.0);
             consider_object(
                 SelectedObject::GroundStation(station.name.clone()),
                 center,
@@ -176,6 +230,7 @@ impl<Message> shader::Program<Message> for Program {
             camera,
             elapsed: self.elapsed_time(),
             satellite_mode: self.satellite_mode,
+            frame_mode: self.frame_mode,
         }
     }
 }
@@ -186,6 +241,7 @@ pub struct Primitive {
     camera: Camera,
     elapsed: f32,
     satellite_mode: SatelliteRenderMode,
+    frame_mode: FrameMode,
 }
 
 impl shader::Primitive for Primitive {
@@ -199,6 +255,11 @@ impl shader::Primitive for Primitive {
         bounds: &iced::Rectangle,
         viewport: &shader::Viewport,
     ) {
+        let frame_mode_u32 = match self.frame_mode {
+            FrameMode::Eci => 0,
+            FrameMode::Ecef => 1,
+        };
+
         pipeline.prepare(
             device,
             queue,
@@ -208,6 +269,7 @@ impl shader::Primitive for Primitive {
             &self.camera,
             self.elapsed,
             self.satellite_mode,
+            frame_mode_u32,
         );
     }
 

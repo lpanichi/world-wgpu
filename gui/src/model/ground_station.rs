@@ -15,21 +15,22 @@ impl GroundStation {
             name: name.into(),
             latitude_deg,
             longitude_deg,
-            height: 0.02,
-            cube_size: 0.1,
+            // Visualization-friendly defaults in kilometer world units.
+            height: 100.0,
+            cube_size: 500.0,
         }
     }
 
     pub fn cartesian(&self) -> [f32; 3] {
-        // Planet radius is 1.0 in world units.
+        // Planet radius is in kilometers via Simulation constant.
         let lat = self.latitude_deg.to_radians();
         let lon = self.longitude_deg.to_radians();
 
         let x = lat.cos() * lon.cos();
-        let y = lat.sin();
-        let z = lat.cos() * lon.sin();
+        let y = lat.cos() * lon.sin();
+        let z = lat.sin();
 
-        let base = Vector3::new(x, y, z);
+        let base = Vector3::new(x, y, z) * crate::model::simulation::EARTH_RADIUS_KM;
         let offset = base.normalize() * self.height;
         (base + offset).into()
     }
