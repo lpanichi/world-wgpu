@@ -7,6 +7,7 @@ use iced::{
     widget::shader,
 };
 
+use crate::astro::Astral;
 use crate::gpu::pipelines::planet::{
     camera::Camera, texture, trajectory::TrajectoryPipeline, uniforms::Uniforms,
     vertex::TextureVertex,
@@ -15,6 +16,7 @@ use crate::{
     gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode},
     model::simulation::Simulation,
 };
+use nalgebra::Vector3;
 
 const ORBIT_SAMPLES: usize = 128;
 
@@ -287,8 +289,6 @@ impl Pipeline {
             mapped_at_creation: false,
         });
 
-        let uniforms = Uniforms::new(camera);
-
         // Fill orbit trajectory points and ranges.
         let (orbit_points, orbit_ranges) = model.orbit_line_points(ORBIT_SAMPLES);
         self.trajectory
@@ -310,6 +310,20 @@ impl Pipeline {
         } else {
             self.feature_buffer = None;
         }
+
+        // Sun direction as directional light. Use astronomical position relative to Earth.
+        let elapsed_secs = elapsed as f64;
+        let day_of_year = 172 + ((elapsed_secs / 86400.0) as u32 % 365);
+        let hour = (elapsed_secs / 3600.0) % 24.0;
+        let sun_inertial = Astral::sun_inertial_position(day_of_year, hour);
+        let sun_dir = Vector3::new(
+            sun_inertial[0] as f32,
+            sun_inertial[1] as f32,
+            sun_inertial[2] as f32,
+        )
+        .normalize();
+
+        let uniforms = Uniforms::new(camera, [sun_dir.x, sun_dir.y, sun_dir.z]);
 
         // Satellites
         self.satellite.set_render_mode(satellite_mode);

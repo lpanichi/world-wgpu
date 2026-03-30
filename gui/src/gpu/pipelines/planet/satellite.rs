@@ -4,6 +4,7 @@ use iced::wgpu::{
     self, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,
     BufferDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderStages, TextureFormat,
 };
+use nalgebra::Vector3;
 
 const MAX_SATELLITES: usize = 64;
 
@@ -13,6 +14,7 @@ pub struct SatelliteUniforms {
     pub view_proj: [[f32; 4]; 4],
     pub camera_right: [f32; 4],
     pub camera_up: [f32; 4],
+    pub sun_direction: [f32; 4],
     pub satellite_meta: [u32; 4],
     pub models: [[[f32; 4]; 4]; MAX_SATELLITES],
 }
@@ -23,6 +25,7 @@ impl SatelliteUniforms {
             view_proj: nalgebra::Matrix4::identity().into(),
             camera_right: [1.0, 0.0, 0.0, 0.0],
             camera_up: [0.0, 1.0, 0.0, 0.0],
+            sun_direction: [1.0, 0.0, 0.0, 0.0],
             satellite_meta: [0; 4],
             models: [nalgebra::Matrix4::identity().into(); MAX_SATELLITES],
         }
@@ -225,7 +228,7 @@ impl SatellitePipeline {
                 label: Some("Satellite Uniforms bind group layout"),
                 entries: &[BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: ShaderStages::VERTEX,
+                    visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -373,6 +376,18 @@ impl SatellitePipeline {
 
         let mut uniforms = SatelliteUniforms::new();
         uniforms.view_proj = camera.build_view_projection_matrix().into();
+
+        let elapsed_secs = elapsed as f64;
+        let day_of_year = 172 + ((elapsed_secs / 86400.0) as u32 % 365);
+        let hour = (elapsed_secs / 3600.0) % 24.0;
+        let sun_inertial = crate::astro::Astral::sun_inertial_position(day_of_year, hour);
+        let sun_dir = Vector3::new(
+            sun_inertial[0] as f32,
+            sun_inertial[1] as f32,
+            sun_inertial[2] as f32,
+        )
+        .normalize();
+        uniforms.sun_direction = [sun_dir.x, sun_dir.y, sun_dir.z, 0.0];
 
         let camera_forward = (camera.target - camera.eye).normalize();
         let camera_right = camera_forward.cross(&camera.up.into_inner()).normalize();
