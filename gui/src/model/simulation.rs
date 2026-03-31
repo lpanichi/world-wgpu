@@ -189,18 +189,6 @@ impl Simulation {
             .collect()
     }
 
-    fn rotate_ecef_to_eci(point: [f32; 3], earth_rotation_angle: f32) -> [f32; 3] {
-        let vec = Vector3::new(point[0], point[1], point[2]);
-        let rot = Rotation3::from_axis_angle(&Vector3::z_axis(), earth_rotation_angle);
-        let out = rot * vec;
-        [out.x, out.y, out.z]
-    }
-
-    fn station_surface_point(station: &GroundStation) -> [f32; 3] {
-        let center = Vector3::from(station.cartesian());
-        (center.normalize() * EARTH_RADIUS_KM).into()
-    }
-
     pub fn satellite_fov_projected_circles(&self, elapsed: f32) -> Vec<Vec<[f32; 3]>> {
         self.satellite_positions(elapsed)
             .into_iter()

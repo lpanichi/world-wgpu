@@ -14,12 +14,26 @@ use iced::{
     Theme,
     keyboard::{self, Key},
     time::{self, milliseconds},
-    widget::{button, column, container, pane_grid, row, scrollable, shader, text},
+    widget::{button, column, container, pane_grid, row, scrollable, shader, text, text_input},
 };
 use log::info;
 
 mod program;
 use crate::program::SelectedObject;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PanelMode {
+    Builder,
+    Manager,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BuilderPane {
+    None,
+    Orbit,
+    Station,
+    Satellite,
+}
 
 #[derive(Clone)]
 enum Message {
@@ -37,6 +51,23 @@ enum Message {
     ToggleOrbit(usize),
     ToggleSatelliteMode,
     ToggleFrame,
+    SwitchMode(PanelMode),
+    ShowBuilderPane(BuilderPane),
+    CreateOrbit,
+    CreateStation,
+    CreateOrbitSatellite,
+    DeleteOrbit(usize),
+    DeleteStation(usize),
+    DeleteSatellite(usize, usize),
+    OrbitAltitudeInput(String),
+    OrbitInclinationInput(String),
+    OrbitRaanInput(String),
+    OrbitArgPerigeeInput(String),
+    StationNameInput(String),
+    StationLatInput(String),
+    StationLonInput(String),
+    SatelliteNameInput(String),
+    SatelliteOrbitIndexInput(String),
     TogglePause,
     IncreaseTimeScale,
     DecreaseTimeScale,
@@ -68,6 +99,20 @@ struct Textured {
     selected_object: SelectedObject,
     selected_hit_distance: Option<f32>,
     viewport_size: (f32, f32),
+
+    panel_mode: PanelMode,
+    builder_pane: BuilderPane,
+
+    // Builder widget state
+    orbit_altitude_input: String,
+    orbit_inclination_input: String,
+    orbit_raan_input: String,
+    orbit_arg_perigee_input: String,
+    station_name_input: String,
+    station_lat_input: String,
+    station_lon_input: String,
+    satellite_name_input: String,
+    satellite_orbit_index_input: String,
 }
 
 impl Textured {
@@ -201,6 +246,115 @@ impl Textured {
             Message::RemoveStation => {
                 self.modify_model(|model| {
                     model.ground_stations.pop();
+                });
+            }
+            Message::SwitchMode(mode) => {
+                self.panel_mode = mode;
+                self.status_message = format!("Switched to {:?} mode", mode);
+            }
+            Message::ShowBuilderPane(builder_pane) => {
+                self.builder_pane = builder_pane;
+                self.status_message = format!("Builder pane: {:?}", builder_pane);
+            }
+            Message::OrbitAltitudeInput(value) => self.orbit_altitude_input = value,
+            Message::OrbitInclinationInput(value) => self.orbit_inclination_input = value,
+            Message::OrbitRaanInput(value) => self.orbit_raan_input = value,
+            Message::OrbitArgPerigeeInput(value) => self.orbit_arg_perigee_input = value,
+            Message::StationNameInput(value) => self.station_name_input = value,
+            Message::StationLatInput(value) => self.station_lat_input = value,
+            Message::StationLonInput(value) => self.station_lon_input = value,
+            Message::SatelliteNameInput(value) => self.satellite_name_input = value,
+            Message::SatelliteOrbitIndexInput(value) => self.satellite_orbit_index_input = value,
+            Message::CreateOrbit => {
+                let altitude = self.orbit_altitude_input.parse::<f32>().unwrap_or(500.0);
+                let inclination = self.orbit_inclination_input.parse::<f32>().unwrap_or(20.0);
+                let raan = self.orbit_raan_input.parse::<f32>().unwrap_or(30.0);
+                let arg_perigee = self.orbit_arg_perigee_input.parse::<f32>().unwrap_or(0.0);
+
+                let semi_major_axis = EARTH_RADIUS_KM + altitude;
+                let period_seconds = Orbit::circular_period_seconds(semi_major_axis);
+
+                self.modify_model(|model| {
+                    model.orbits.push(
+                        Orbit::builder(semi_major_axis, period_seconds)
+                            .inclination(inclination)
+                            .raan(raan)
+                            .arg_perigee(arg_perigee)
+                            .show_orbit(true)
+                            .add_satellite(Satellite::builder("Sat-1").phase_offset(0.0).build())
+                            .build(),
+                    );
+                });
+
+                self.status_message =
+                    format!("Created orbit, total {}", self.program.model.orbits.len());
+            }
+            Message::CreateStation => {
+                let name = if self.station_name_input.trim().is_empty() {
+                    format!("Station {}", self.program.model.ground_stations.len() + 1)
+                } else {
+                    self.station_name_input.clone()
+                };
+                let lat = self.station_lat_input.parse::<f32>().unwrap_or(0.0);
+                let lon = self.station_lon_input.parse::<f32>().unwrap_or(0.0);
+
+                self.modify_model(|model| {
+                    model
+                        .ground_stations
+                        .push(GroundStation::new(name.clone(), lat, lon));
+                });
+
+                self.status_message = format!("Created station '{}'", name);
+            }
+            Message::CreateOrbitSatellite => {
+                let orbit_index = self
+                    .satellite_orbit_index_input
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|idx| *idx < self.program.model.orbits.len());
+
+                if let Some(idx) = orbit_index {
+                    let sat_name = if self.satellite_name_input.trim().is_empty() {
+                        format!("Sat-{}", idx + 1)
+                    } else {
+                        self.satellite_name_input.clone()
+                    };
+                    self.modify_model(|model| {
+                        if let Some(orbit) = model.orbits.get_mut(idx) {
+                            orbit.satellites.push(
+                                Satellite::builder(sat_name.clone())
+                                    .phase_offset(0.0)
+                                    .build(),
+                            );
+                        }
+                    });
+                    self.status_message =
+                        format!("Created satellite '{}' in orbit {}", sat_name, idx);
+                } else {
+                    self.status_message = "Invalid orbit index for satellite creation".to_string();
+                }
+            }
+            Message::DeleteOrbit(index) => {
+                self.modify_model(|model| {
+                    if index < model.orbits.len() {
+                        model.orbits.remove(index);
+                    }
+                });
+            }
+            Message::DeleteStation(index) => {
+                self.modify_model(|model| {
+                    if index < model.ground_stations.len() {
+                        model.ground_stations.remove(index);
+                    }
+                });
+            }
+            Message::DeleteSatellite(orbit_index, sat_index) => {
+                self.modify_model(|model| {
+                    if let Some(orbit) = model.orbits.get_mut(orbit_index) {
+                        if sat_index < orbit.satellites.len() {
+                            orbit.satellites.remove(sat_index);
+                        }
+                    }
                 });
             }
         }
@@ -364,6 +518,108 @@ impl Textured {
     fn control_panel(&self) -> Element<'_, Message> {
         let meta = &self.program.model;
 
+        let mode_row = row![
+            button("Builder Mode").on_press(Message::SwitchMode(PanelMode::Builder)),
+            button("Manager Mode").on_press(Message::SwitchMode(PanelMode::Manager)),
+        ]
+        .spacing(8);
+
+        let builder_toolbar = row![
+            button("Station").on_press(Message::ShowBuilderPane(BuilderPane::Station)),
+            button("Orbit").on_press(Message::ShowBuilderPane(BuilderPane::Orbit)),
+            button("Satellite").on_press(Message::ShowBuilderPane(BuilderPane::Satellite)),
+        ]
+        .spacing(8);
+
+        let builder_panel = match self.builder_pane {
+            BuilderPane::Orbit => column![
+                text("Orbit Builder").size(14),
+                text_input("Altitude (km)", &self.orbit_altitude_input)
+                    .on_input(Message::OrbitAltitudeInput),
+                text_input("Inclination (deg)", &self.orbit_inclination_input)
+                    .on_input(Message::OrbitInclinationInput),
+                text_input("RAAN (deg)", &self.orbit_raan_input).on_input(Message::OrbitRaanInput),
+                text_input("Arg Perigee (deg)", &self.orbit_arg_perigee_input)
+                    .on_input(Message::OrbitArgPerigeeInput),
+                button("Create Orbit").on_press(Message::CreateOrbit),
+            ]
+            .spacing(8),
+            BuilderPane::Station => column![
+                text("Station Builder").size(14),
+                text_input("Name", &self.station_name_input).on_input(Message::StationNameInput),
+                text_input("Latitude", &self.station_lat_input).on_input(Message::StationLatInput),
+                text_input("Longitude", &self.station_lon_input).on_input(Message::StationLonInput),
+                button("Create Station").on_press(Message::CreateStation),
+            ]
+            .spacing(8),
+            BuilderPane::Satellite => column![
+                text("Satellite Builder").size(14),
+                text_input("Name", &self.satellite_name_input)
+                    .on_input(Message::SatelliteNameInput),
+                text_input("Orbit index", &self.satellite_orbit_index_input)
+                    .on_input(Message::SatelliteOrbitIndexInput),
+                button("Create Satellite").on_press(Message::CreateOrbitSatellite),
+            ]
+            .spacing(8),
+            BuilderPane::None => column![text("Select a builder resource above")].spacing(8),
+        };
+
+        let manager_panel = {
+            let mut panel = column![text("Resource Manager").size(16)].spacing(8);
+
+            panel = panel.push(text("Orbits").size(14));
+            for (i, orbit) in meta.orbits.iter().enumerate() {
+                panel = panel.push(
+                    row![
+                        text(format!(
+                            "Orbit {}: a={:.1}, inc={:.1}, sats={} ",
+                            i,
+                            orbit.semi_major_axis,
+                            orbit.inclination_deg,
+                            orbit.satellites.len()
+                        )),
+                        button("Delete").on_press(Message::DeleteOrbit(i)),
+                    ]
+                    .spacing(6),
+                );
+            }
+
+            panel = panel.push(text("Stations").size(14));
+            for (i, station) in meta.ground_stations.iter().enumerate() {
+                panel = panel.push(
+                    row![
+                        text(format!(
+                            "{} @ ({:.1},{:.1})",
+                            station.name, station.latitude_deg, station.longitude_deg
+                        )),
+                        button("Delete").on_press(Message::DeleteStation(i)),
+                    ]
+                    .spacing(6),
+                );
+            }
+
+            panel = panel.push(text("Satellites").size(14));
+            for (orbit_index, orbit) in meta.orbits.iter().enumerate() {
+                for (sat_index, satellite) in orbit.satellites.iter().enumerate() {
+                    panel = panel.push(
+                        row![
+                            text(format!("orbit {} / {}", orbit_index, satellite.name)),
+                            button("Delete")
+                                .on_press(Message::DeleteSatellite(orbit_index, sat_index)),
+                        ]
+                        .spacing(6),
+                    );
+                }
+            }
+
+            panel
+        };
+
+        let mode_content = match self.panel_mode {
+            PanelMode::Builder => column![builder_toolbar, builder_panel].spacing(10),
+            PanelMode::Manager => manager_panel,
+        };
+
         let mut content = column![
             text(format!("Selected object: {}", self.status_message)).size(16),
             text(format!(
@@ -401,37 +657,11 @@ impl Textured {
                 button("1x").on_press(Message::ResetTimeScale),
             ]
             .spacing(8),
-            row![
-                button("Add Orbit").on_press(Message::AddOrbit),
-                button("Remove Orbit").on_press(Message::RemoveOrbit),
-            ]
-            .spacing(8),
-            row![
-                button("Add Station").on_press(Message::AddStation),
-                button("Remove Station").on_press(Message::RemoveStation),
-            ]
-            .spacing(8),
-            button("Toggle Satellite Mode").on_press(Message::ToggleSatelliteMode),
+            mode_row,
+            mode_content,
         ]
         .spacing(10)
         .padding(10);
-
-        for (i, orbit) in meta.orbits.iter().enumerate() {
-            let orbit_row = row![
-                text(format!(
-                    "Orbit {} (a={:.1}, incl={:.1}):",
-                    i, orbit.semi_major_axis, orbit.inclination_deg
-                )),
-                button(if orbit.show_orbit { "Hide" } else { "Show" })
-                    .on_press(Message::ToggleOrbit(i)),
-                button("+ Sat").on_press(Message::AddSatellite(i)),
-                button("- Sat").on_press(Message::RemoveSatellite(i)),
-                text(format!("{} sats", orbit.satellites.len())),
-            ]
-            .spacing(8);
-
-            content = content.push(orbit_row);
-        }
 
         scrollable(content).height(Fill).into()
     }
@@ -518,6 +748,17 @@ impl Default for Textured {
             panes,
             focus: Some(root_pane),
             status_message: "No selection".to_string(),
+            panel_mode: PanelMode::Builder,
+            builder_pane: BuilderPane::None,
+            orbit_altitude_input: "500.0".to_string(),
+            orbit_inclination_input: "20.0".to_string(),
+            orbit_raan_input: "30.0".to_string(),
+            orbit_arg_perigee_input: "0.0".to_string(),
+            station_name_input: "Station".to_string(),
+            station_lat_input: "0.0".to_string(),
+            station_lon_input: "0.0".to_string(),
+            satellite_name_input: "Sat".to_string(),
+            satellite_orbit_index_input: "0".to_string(),
             cursor_position: None,
             drag_start: None,
             right_button_down: false,
