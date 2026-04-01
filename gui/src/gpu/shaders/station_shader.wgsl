@@ -85,5 +85,5 @@ fn fs_main_cone(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let base_color = vec3<f32>(0.2, 0.8, 0.2);
     let color = base_color * lit_strength;
-    return vec4<f32>(color, 0.5);
+    return vec4<f32>(color, 0.2);
 }

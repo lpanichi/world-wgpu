@@ -1,5 +1,6 @@
 pub mod atmosphere;
 pub mod camera;
+pub mod cloud;
 pub mod instance_mesh;
 pub mod moon;
 pub mod pipeline;

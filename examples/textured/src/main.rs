@@ -148,6 +148,8 @@ struct Textured {
 
     // Camera follow
     follow_satellite: Option<(usize, usize)>,
+    /// Camera offset from satellite position when in follow mode.
+    follow_offset: nalgebra::Vector3<f32>,
 
     // KPI state
     kpi_station_index: String,
@@ -175,13 +177,9 @@ impl Textured {
                         if let Some(sat) = orbit.satellites.get(sat_idx) {
                             let elapsed = self.program.elapsed_time();
                             let pos = orbit.position(elapsed, sat);
-                            let offset = nalgebra::Vector3::new(pos[0], pos[1], pos[2]).normalize() * 200.0;
-                            self.program.camera.eye = nalgebra::Point3::new(
-                                pos[0] + offset.x,
-                                pos[1] + offset.y,
-                                pos[2] + offset.z,
-                            );
-                            self.program.camera.target = nalgebra::Point3::new(pos[0], pos[1], pos[2]);
+                            let sat_pos = nalgebra::Point3::new(pos[0], pos[1], pos[2]);
+                            self.program.camera.eye = sat_pos + self.follow_offset;
+                            self.program.camera.target = sat_pos;
                         }
                     }
                 }
@@ -192,7 +190,11 @@ impl Textured {
                     self.kpi_sat_index.parse::<usize>(),
                 ) {
                     let elapsed = self.program.elapsed_time();
-                    if let Some(dist) = self.program.simulation.station_satellite_distance(si, oi, sati, elapsed) {
+                    if let Some(dist) = self
+                        .program
+                        .simulation
+                        .station_satellite_distance(si, oi, sati, elapsed)
+                    {
                         self.kpi_distance_history.push((elapsed, dist));
                         // Keep last 500 samples
                         if self.kpi_distance_history.len() > 500 {
@@ -257,10 +259,15 @@ impl Textured {
                 self.status_message = "Time reset".to_string();
             }
             Message::TogglePrecession => {
-                self.program.simulation.precession_enabled = !self.program.simulation.precession_enabled;
+                self.program.simulation.precession_enabled =
+                    !self.program.simulation.precession_enabled;
                 self.status_message = format!(
                     "Precession: {}",
-                    if self.program.simulation.precession_enabled { "ON" } else { "OFF" }
+                    if self.program.simulation.precession_enabled {
+                        "ON"
+                    } else {
+                        "OFF"
+                    }
                 );
             }
             Message::SwitchMode(mode) => {
@@ -290,14 +297,16 @@ impl Textured {
                 let altitude = match self.orbit_altitude_input.parse::<f32>() {
                     Ok(v) if v > 0.0 && v < 100_000.0 => v,
                     _ => {
-                        self.error_message = "Altitude must be a positive number (km), e.g. 500".to_string();
+                        self.error_message =
+                            "Altitude must be a positive number (km), e.g. 500".to_string();
                         return;
                     }
                 };
                 let inclination = match self.orbit_inclination_input.parse::<f32>() {
                     Ok(v) if (-180.0..=180.0).contains(&v) => v,
                     _ => {
-                        self.error_message = "Inclination must be between -180° and 180°".to_string();
+                        self.error_message =
+                            "Inclination must be between -180° and 180°".to_string();
                         return;
                     }
                 };
@@ -311,7 +320,8 @@ impl Textured {
                 let arg_perigee = match self.orbit_arg_perigee_input.parse::<f32>() {
                     Ok(v) => v,
                     _ => {
-                        self.error_message = "Argument of perigee must be a valid number (degrees)".to_string();
+                        self.error_message =
+                            "Argument of perigee must be a valid number (degrees)".to_string();
                         return;
                     }
                 };
@@ -378,7 +388,10 @@ impl Textured {
 
                 if let Some(idx) = orbit_index {
                     let sat_name = if self.satellite_name_input.trim().is_empty() {
-                        format!("Sat-{}", self.program.simulation.orbits[idx].satellites.len() + 1)
+                        format!(
+                            "Sat-{}",
+                            self.program.simulation.orbits[idx].satellites.len() + 1
+                        )
                     } else {
                         self.satellite_name_input.clone()
                     };
@@ -404,19 +417,37 @@ impl Textured {
             Message::CreateRectSurface => {
                 let min_lat = match self.rect_min_lat_input.parse::<f32>() {
                     Ok(v) if (-90.0..=90.0).contains(&v) => v,
-                    _ => { self.error_message = "Min latitude must be between -90° and 90°".to_string(); return; }
+                    _ => {
+                        self.error_message =
+                            "Min latitude must be between -90° and 90°".to_string();
+                        return;
+                    }
                 };
                 let max_lat = match self.rect_max_lat_input.parse::<f32>() {
                     Ok(v) if (-90.0..=90.0).contains(&v) && v > min_lat => v,
-                    _ => { self.error_message = "Max latitude must be > min latitude and between -90° and 90°".to_string(); return; }
+                    _ => {
+                        self.error_message =
+                            "Max latitude must be > min latitude and between -90° and 90°"
+                                .to_string();
+                        return;
+                    }
                 };
                 let min_lon = match self.rect_min_lon_input.parse::<f32>() {
                     Ok(v) if (-180.0..=180.0).contains(&v) => v,
-                    _ => { self.error_message = "Min longitude must be between -180° and 180°".to_string(); return; }
+                    _ => {
+                        self.error_message =
+                            "Min longitude must be between -180° and 180°".to_string();
+                        return;
+                    }
                 };
                 let max_lon = match self.rect_max_lon_input.parse::<f32>() {
                     Ok(v) if (-180.0..=180.0).contains(&v) && v > min_lon => v,
-                    _ => { self.error_message = "Max longitude must be > min longitude and between -180° and 180°".to_string(); return; }
+                    _ => {
+                        self.error_message =
+                            "Max longitude must be > min longitude and between -180° and 180°"
+                                .to_string();
+                        return;
+                    }
                 };
                 // Rectangle is drawn as a feature; we store it as a ground station pair for now.
                 // Store it as metadata in the status message. The actual rendering happens via features.
@@ -428,7 +459,10 @@ impl Textured {
                 // The rectangle will be rendered in the feature lines.
                 // We'll store the rect specs in the simulation.
                 // For now, let's add rectangle support to the simulation's stored rects.
-                self.program.simulation.rect_surfaces.push((min_lat, max_lat, min_lon, max_lon));
+                self.program
+                    .simulation
+                    .rect_surfaces
+                    .push((min_lat, max_lat, min_lon, max_lon));
             }
             // Manager: delete
             Message::DeleteOrbit(index) => {
@@ -506,16 +540,42 @@ impl Textured {
             }
             // Camera follow
             Message::FollowSatellite(target) => {
-                self.follow_satellite = target;
-                self.status_message = match target {
-                    Some((o, s)) => format!("Following orbit {} sat {}", o, s),
-                    None => "Free camera".to_string(),
-                };
+                match target {
+                    Some((o, s)) => {
+                        // Initialize offset along radial direction from satellite
+                        if let Some(orbit) = self.program.simulation.orbits.get(o) {
+                            if let Some(sat) = orbit.satellites.get(s) {
+                                let elapsed = self.program.elapsed_time();
+                                let pos = orbit.position(elapsed, sat);
+                                let radial =
+                                    nalgebra::Vector3::new(pos[0], pos[1], pos[2]).normalize();
+                                self.follow_offset = radial * 200.0;
+                            }
+                        }
+                        self.follow_satellite = Some((o, s));
+                        self.status_message = format!("Following orbit {} sat {}", o, s);
+                    }
+                    None => {
+                        self.follow_satellite = None;
+                        // Reset camera to point at Earth
+                        self.program.camera.target = nalgebra::Point3::origin();
+                        self.status_message = "Free camera".to_string();
+                    }
+                }
             }
             // KPI
-            Message::KpiStationIndexInput(v) => { self.kpi_station_index = v; self.kpi_distance_history.clear(); }
-            Message::KpiOrbitIndexInput(v) => { self.kpi_orbit_index = v; self.kpi_distance_history.clear(); }
-            Message::KpiSatIndexInput(v) => { self.kpi_sat_index = v; self.kpi_distance_history.clear(); }
+            Message::KpiStationIndexInput(v) => {
+                self.kpi_station_index = v;
+                self.kpi_distance_history.clear();
+            }
+            Message::KpiOrbitIndexInput(v) => {
+                self.kpi_orbit_index = v;
+                self.kpi_distance_history.clear();
+            }
+            Message::KpiSatIndexInput(v) => {
+                self.kpi_sat_index = v;
+                self.kpi_distance_history.clear();
+            }
         }
     }
 
@@ -550,21 +610,62 @@ impl Textured {
         );
     }
 
+    fn rotate_follow_offset_horizontal(&mut self, angle: f32) {
+        let rot = nalgebra::Rotation3::from_axis_angle(&nalgebra::Vector3::z_axis(), angle);
+        self.follow_offset = rot * self.follow_offset;
+    }
+
+    fn rotate_follow_offset_vertical(&mut self, angle: f32) {
+        let right = self
+            .follow_offset
+            .cross(&nalgebra::Vector3::z_axis().into_inner());
+        if right.norm_squared() < 1e-8 {
+            return;
+        }
+        let axis = nalgebra::Unit::new_normalize(right);
+        let rot = nalgebra::Rotation3::from_axis_angle(&axis, angle);
+        let new_offset = rot * self.follow_offset;
+        // Prevent flipping past poles
+        let up_dot = new_offset
+            .normalize()
+            .dot(&nalgebra::Vector3::z_axis().into_inner());
+        if up_dot.abs() > 0.98 {
+            return;
+        }
+        self.follow_offset = new_offset;
+    }
+
     fn handle_keyboard_event(&mut self, event: keyboard::Event) {
         if let keyboard::Event::KeyPressed { key, .. } = event {
             let delta_angle = 5.0_f32.to_radians();
             match key {
                 Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
-                    self.program.camera.rotate_around_up(-delta_angle);
+                    if self.follow_satellite.is_some() {
+                        self.rotate_follow_offset_horizontal(-delta_angle);
+                    } else {
+                        self.program.camera.rotate_around_up(-delta_angle);
+                    }
                 }
                 Key::Named(iced::keyboard::key::Named::ArrowRight) => {
-                    self.program.camera.rotate_around_up(delta_angle);
+                    if self.follow_satellite.is_some() {
+                        self.rotate_follow_offset_horizontal(delta_angle);
+                    } else {
+                        self.program.camera.rotate_around_up(delta_angle);
+                    }
                 }
                 Key::Named(iced::keyboard::key::Named::ArrowUp) => {
-                    self.program.camera.rotate_vertically(-delta_angle);
+                    if self.follow_satellite.is_some() {
+                        self.rotate_follow_offset_vertical(-delta_angle);
+                    } else {
+                        self.program.camera.rotate_vertically(-delta_angle);
+                    }
                 }
                 Key::Named(iced::keyboard::key::Named::ArrowDown) => {
-                    self.program.camera.rotate_vertically(delta_angle);
+                    if self.follow_satellite.is_some() {
+                        self.rotate_follow_offset_vertical(delta_angle);
+                    } else {
+                        self.program.camera.rotate_vertically(delta_angle);
+                    }
                 }
                 Key::Named(iced::keyboard::key::Named::Space) => {
                     self.program.satellite_mode = match self.program.satellite_mode {
@@ -602,8 +703,13 @@ impl Textured {
                     if let Some((prev_x, prev_y)) = self.drag_start {
                         let dx = x - prev_x;
                         let dy = y - prev_y;
-                        self.program.camera.rotate_around_up(-dx * 0.005);
-                        self.program.camera.rotate_vertically(-dy * 0.005);
+                        if self.follow_satellite.is_some() {
+                            self.rotate_follow_offset_horizontal(-dx * 0.005);
+                            self.rotate_follow_offset_vertical(-dy * 0.005);
+                        } else {
+                            self.program.camera.rotate_around_up(-dx * 0.005);
+                            self.program.camera.rotate_vertically(-dy * 0.005);
+                        }
                         self.drag_start = Some((x, y));
                     } else {
                         self.drag_start = Some((x, y));
@@ -658,7 +764,13 @@ impl Textured {
                     iced::mouse::ScrollDelta::Lines { y, .. } => y.signum() * step_km,
                     iced::mouse::ScrollDelta::Pixels { y, .. } => y.signum() * step_km,
                 };
-                self.program.camera.dolly(amount);
+                if self.follow_satellite.is_some() {
+                    let dist = self.follow_offset.norm();
+                    let new_dist = (dist - amount).max(10.0);
+                    self.follow_offset = self.follow_offset.normalize() * new_dist;
+                } else {
+                    self.program.camera.dolly(amount);
+                }
             }
             _ => (),
         }
@@ -706,7 +818,11 @@ impl Textured {
         let error_display = if self.error_message.is_empty() {
             column![]
         } else {
-            column![text(&self.error_message).size(13).color(iced::Color::from_rgb(1.0, 0.3, 0.3))]
+            column![
+                text(&self.error_message)
+                    .size(13)
+                    .color(iced::Color::from_rgb(1.0, 0.3, 0.3))
+            ]
         };
 
         // --- Controls row ---
@@ -718,18 +834,34 @@ impl Textured {
             ]
             .spacing(4),
             row![
-                button("◀ Slower").on_press(Message::DecreaseTimeScale).width(80),
-                button("▶ Faster").on_press(Message::IncreaseTimeScale).width(80),
+                button("◀ Slower")
+                    .on_press(Message::DecreaseTimeScale)
+                    .width(80),
+                button("▶ Faster")
+                    .on_press(Message::IncreaseTimeScale)
+                    .width(80),
                 button("1x").on_press(Message::ResetTimeScale).width(40),
             ]
             .spacing(4),
             row![
-                button(if self.program.simulation.precession_enabled { "Precession: ON" } else { "Precession: OFF" })
-                    .on_press(Message::TogglePrecession),
-                button(if self.follow_satellite.is_some() { "Free Camera" } else { "Follow..." })
-                    .on_press(Message::FollowSatellite(
-                        if self.follow_satellite.is_some() { None } else { Some((0, 0)) }
-                    )),
+                button(if self.program.simulation.precession_enabled {
+                    "Precession: ON"
+                } else {
+                    "Precession: OFF"
+                })
+                .on_press(Message::TogglePrecession),
+                button(if self.follow_satellite.is_some() {
+                    "Free Camera"
+                } else {
+                    "Follow..."
+                })
+                .on_press(Message::FollowSatellite(
+                    if self.follow_satellite.is_some() {
+                        None
+                    } else {
+                        Some((0, 0))
+                    }
+                )),
             ]
             .spacing(4),
         ]
@@ -768,15 +900,9 @@ impl Textured {
             PanelMode::Kpi => self.kpi_panel(),
         };
 
-        let content = column![
-            header,
-            error_display,
-            controls,
-            mode_row,
-            mode_content,
-        ]
-        .spacing(8)
-        .padding(10);
+        let content = column![header, error_display, controls, mode_row, mode_content,]
+            .spacing(8)
+            .padding(10);
 
         scrollable(content).height(Fill).into()
     }
@@ -865,16 +991,17 @@ impl Textured {
         let show_all = self.manager_focus.is_none();
 
         if show_all {
-            panel = panel.push(button("Show All").on_press(Message::SwitchMode(PanelMode::Manager)));
+            panel =
+                panel.push(button("Show All").on_press(Message::SwitchMode(PanelMode::Manager)));
         } else {
             panel = panel.push(
-                button("← Show All Resources")
-                    .on_press(Message::SwitchMode(PanelMode::Manager))
+                button("← Show All Resources").on_press(Message::SwitchMode(PanelMode::Manager)),
             );
         }
 
         // Orbits section
-        let show_orbits = show_all || matches!(&self.manager_focus, Some(SelectedObject::Satellite(_)));
+        let show_orbits =
+            show_all || matches!(&self.manager_focus, Some(SelectedObject::Satellite(_)));
         if show_orbits {
             panel = panel.push(text("━━ Orbits ━━").size(13));
             for (i, orbit) in meta.orbits.iter().enumerate() {
@@ -892,23 +1019,32 @@ impl Textured {
                 .spacing(4);
 
                 let orbit_controls = row![
-                    button(if orbit.show_orbit { "Orbit: ✓" } else { "Orbit: ✗" })
-                        .on_press(Message::ToggleOrbitVisible(i)),
-                    button(if orbit.show_fov { "FOV: ✓" } else { "FOV: ✗" })
-                        .on_press(Message::ToggleOrbitFov(i)),
-                    button(if orbit.fill_fov { "Fill: ✓" } else { "Fill: ✗" })
-                        .on_press(Message::ToggleOrbitFovFill(i)),
+                    button(if orbit.show_orbit {
+                        "Orbit: ✓"
+                    } else {
+                        "Orbit: ✗"
+                    })
+                    .on_press(Message::ToggleOrbitVisible(i)),
+                    button(if orbit.show_fov {
+                        "FOV: ✓"
+                    } else {
+                        "FOV: ✗"
+                    })
+                    .on_press(Message::ToggleOrbitFov(i)),
+                    button(if orbit.fill_fov {
+                        "Fill: ✓"
+                    } else {
+                        "Fill: ✗"
+                    })
+                    .on_press(Message::ToggleOrbitFovFill(i)),
                 ]
                 .spacing(2);
 
                 let fov_input = row![
                     text("FOV half-angle (°)").size(11),
-                    text_input(
-                        "deg",
-                        &format!("{:.1}", orbit.fov_half_angle_deg),
-                    )
-                    .on_input(move |v| Message::OrbitFovAngleInput(i, v))
-                    .width(60),
+                    text_input("deg", &format!("{:.1}", orbit.fov_half_angle_deg),)
+                        .on_input(move |v| Message::OrbitFovAngleInput(i, v))
+                        .width(60),
                 ]
                 .spacing(4);
 
@@ -924,7 +1060,9 @@ impl Textured {
                 ]
                 .spacing(4);
 
-                panel = panel.push(column![orbit_header, orbit_controls, fov_input, orbit_params].spacing(2));
+                panel = panel.push(
+                    column![orbit_header, orbit_controls, fov_input, orbit_params].spacing(2),
+                );
 
                 for (si, sat) in orbit.satellites.iter().enumerate() {
                     panel = panel.push(
@@ -940,7 +1078,8 @@ impl Textured {
         }
 
         // Stations section
-        let show_stations = show_all || matches!(&self.manager_focus, Some(SelectedObject::GroundStation(_)));
+        let show_stations =
+            show_all || matches!(&self.manager_focus, Some(SelectedObject::GroundStation(_)));
         if show_stations {
             panel = panel.push(text("━━ Stations ━━").size(13));
             for (i, station) in meta.ground_stations.iter().enumerate() {
@@ -955,15 +1094,16 @@ impl Textured {
                 .spacing(4);
 
                 let station_controls = row![
-                    button(if station.show_cone { "Cone: ✓" } else { "Cone: ✗" })
-                        .on_press(Message::ToggleStationCone(i)),
+                    button(if station.show_cone {
+                        "Cone: ✓"
+                    } else {
+                        "Cone: ✗"
+                    })
+                    .on_press(Message::ToggleStationCone(i)),
                     text("Min elev (°)").size(11),
-                    text_input(
-                        "deg",
-                        &format!("{:.1}", station.min_elevation_deg),
-                    )
-                    .on_input(move |v| Message::StationMinElevationInput(i, v))
-                    .width(60),
+                    text_input("deg", &format!("{:.1}", station.min_elevation_deg),)
+                        .on_input(move |v| Message::StationMinElevationInput(i, v))
+                        .width(60),
                 ]
                 .spacing(4);
 
@@ -1002,8 +1142,11 @@ impl Textured {
         } else {
             let last = self.kpi_distance_history.last().unwrap();
             panel = panel.push(
-                text(format!("Current distance: {:.1} km (t={:.1}s)", last.1, last.0))
-                    .size(13),
+                text(format!(
+                    "Current distance: {:.1} km (t={:.1}s)",
+                    last.1, last.0
+                ))
+                .size(13),
             );
 
             // Simple ASCII sparkline of last 60 samples
@@ -1031,7 +1174,8 @@ impl Textured {
                     })
                     .collect();
 
-                panel = panel.push(text(format!("Min: {:.0} km  Max: {:.0} km", min_d, max_d)).size(11));
+                panel = panel
+                    .push(text(format!("Min: {:.0} km  Max: {:.0} km", min_d, max_d)).size(11));
                 panel = panel.push(text(sparkline).size(16));
             }
         }
@@ -1039,11 +1183,15 @@ impl Textured {
         // Summary stats
         let meta = &self.program.simulation;
         panel = panel.push(text("━━ Summary ━━").size(13));
-        panel = panel.push(text(format!("Orbits: {}  Stations: {}  Satellites: {}",
-            meta.orbits.len(),
-            meta.ground_stations.len(),
-            meta.satellite_count(),
-        )).size(12));
+        panel = panel.push(
+            text(format!(
+                "Orbits: {}  Stations: {}  Satellites: {}",
+                meta.orbits.len(),
+                meta.ground_stations.len(),
+                meta.satellite_count(),
+            ))
+            .size(12),
+        );
 
         panel.into()
     }
@@ -1152,6 +1300,7 @@ impl Default for Textured {
             selected_hit_distance: None,
             viewport_size: (200.0, 200.0),
             follow_satellite: None,
+            follow_offset: nalgebra::Vector3::new(0.0, 0.0, 200.0),
             kpi_station_index: "0".to_string(),
             kpi_orbit_index: "0".to_string(),
             kpi_sat_index: "0".to_string(),

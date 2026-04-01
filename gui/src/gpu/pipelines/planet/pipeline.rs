@@ -9,9 +9,8 @@ use iced::{
 
 use crate::astro::Astral;
 use crate::gpu::pipelines::planet::{
-    atmosphere::AtmospherePipeline,
-    camera::Camera, moon::MoonPipeline, texture, trajectory::TrajectoryPipeline, uniforms::Uniforms,
-    vertex::TextureVertex,
+    atmosphere::AtmospherePipeline, camera::Camera, cloud::CloudPipeline, moon::MoonPipeline,
+    texture, trajectory::TrajectoryPipeline, uniforms::Uniforms, vertex::TextureVertex,
 };
 use crate::{
     gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode},
@@ -37,6 +36,7 @@ pub struct Pipeline {
     satellite: SatellitePipeline,
     station: StationPipeline,
     moon: MoonPipeline,
+    cloud: CloudPipeline,
     atmosphere: AtmospherePipeline,
     planet_vertices_count: u32,
     depth_texture: Option<wgpu::Texture>,
@@ -239,6 +239,7 @@ impl Pipeline {
         let satellite = SatellitePipeline::new(device, queue, format);
         let station = StationPipeline::new(device, queue, format);
         let moon = MoonPipeline::new(device, queue, format);
+        let cloud = CloudPipeline::new(device, queue, format);
         let atmosphere = AtmospherePipeline::new(device, queue, format);
 
         Pipeline {
@@ -256,6 +257,7 @@ impl Pipeline {
             satellite,
             station,
             moon,
+            cloud,
             atmosphere,
             planet_vertices_count: 0,
             depth_texture: None,
@@ -357,9 +359,12 @@ impl Pipeline {
         let moon_pos = Astral::moon_inertial_position(day_of_year, hour);
         self.moon.prepare(queue, camera, moon_pos, sun_dir);
 
+        // Clouds
+        self.cloud
+            .prepare(queue, camera, sun_dir, earth_spin, elapsed);
+
         // Atmosphere
-        self.atmosphere
-            .prepare(queue, camera, sun_dir, earth_spin);
+        self.atmosphere.prepare(queue, camera, sun_dir, earth_spin);
 
         // Filled FOV triangles
         let fov_tris = model.satellite_fov_filled_triangles(elapsed);
@@ -449,6 +454,9 @@ impl Pipeline {
                 &self.feature_ranges,
             );
         }
+
+        // Clouds rendered after planet, before other objects
+        self.cloud.render(&mut render_pass);
 
         self.satellite.render(&mut render_pass);
         self.station.render(&mut render_pass);
