@@ -10,7 +10,8 @@ use iced::{
 use crate::astro::Astral;
 use crate::gpu::pipelines::planet::{
     atmosphere::AtmospherePipeline, camera::Camera, cloud::CloudPipeline, moon::MoonPipeline,
-    texture, trajectory::TrajectoryPipeline, uniforms::Uniforms, vertex::TextureVertex,
+    star_catalog::StarCatalogPipeline, texture, trajectory::TrajectoryPipeline, uniforms::Uniforms,
+    vertex::TextureVertex,
 };
 use crate::{
     gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode},
@@ -28,6 +29,7 @@ pub struct Pipeline {
     uniforms_bind_group: BindGroup,
     pipeline: RenderPipeline,
     star_pipeline: RenderPipeline,
+    star_catalog: StarCatalogPipeline,
     trajectory: TrajectoryPipeline,
     feature_buffer: Option<Buffer>,
     feature_ranges: Vec<(u32, u32)>,
@@ -235,6 +237,7 @@ impl Pipeline {
         });
 
         let trajectory = TrajectoryPipeline::new(device, format, &uniform_bind_group_layout);
+        let star_catalog = StarCatalogPipeline::new(device, queue, format);
 
         let satellite = SatellitePipeline::new(device, queue, format);
         let station = StationPipeline::new(device, queue, format);
@@ -249,6 +252,7 @@ impl Pipeline {
             uniforms_bind_group,
             pipeline,
             star_pipeline,
+            star_catalog,
             trajectory,
             feature_buffer: None,
             feature_ranges: Vec::new(),
@@ -344,6 +348,9 @@ impl Pipeline {
         // Sun direction is always ECI. Camera behavior handles frame motion.
         let sun_dir = sun_dir_eci;
 
+        self.star_catalog
+            .prepare(queue, camera, width as f32, height as f32);
+
         let uniforms = Uniforms::new(camera, [sun_dir.x, sun_dir.y, sun_dir.z], earth_spin);
 
         // Satellites
@@ -435,6 +442,8 @@ impl Pipeline {
 
         render_pass.set_pipeline(&self.star_pipeline);
         render_pass.draw(0..3, 0..1);
+
+        self.star_catalog.render(&mut render_pass);
 
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.texture_bind_group, &[]);

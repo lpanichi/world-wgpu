@@ -5,6 +5,7 @@ pub mod instance_mesh;
 pub mod moon;
 pub mod pipeline;
 pub mod satellite;
+pub mod star_catalog;
 pub mod station;
 mod texture;
 pub mod trajectory;
