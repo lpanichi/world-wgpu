@@ -1,5 +1,7 @@
+pub mod atmosphere;
 pub mod camera;
 pub mod instance_mesh;
+pub mod moon;
 pub mod pipeline;
 pub mod satellite;
 pub mod station;

@@ -9,7 +9,8 @@ use iced::{
 
 use crate::astro::Astral;
 use crate::gpu::pipelines::planet::{
-    camera::Camera, texture, trajectory::TrajectoryPipeline, uniforms::Uniforms,
+    atmosphere::AtmospherePipeline,
+    camera::Camera, moon::MoonPipeline, texture, trajectory::TrajectoryPipeline, uniforms::Uniforms,
     vertex::TextureVertex,
 };
 use crate::{
@@ -31,8 +32,12 @@ pub struct Pipeline {
     trajectory: TrajectoryPipeline,
     feature_buffer: Option<Buffer>,
     feature_ranges: Vec<(u32, u32)>,
+    fov_fill_buffer: Option<Buffer>,
+    fov_fill_vertex_count: u32,
     satellite: SatellitePipeline,
     station: StationPipeline,
+    moon: MoonPipeline,
+    atmosphere: AtmospherePipeline,
     planet_vertices_count: u32,
     depth_texture: Option<wgpu::Texture>,
     depth_size: (u32, u32),
@@ -233,6 +238,8 @@ impl Pipeline {
 
         let satellite = SatellitePipeline::new(device, queue, format);
         let station = StationPipeline::new(device, queue, format);
+        let moon = MoonPipeline::new(device, queue, format);
+        let atmosphere = AtmospherePipeline::new(device, queue, format);
 
         Pipeline {
             vertices,
@@ -244,8 +251,12 @@ impl Pipeline {
             trajectory,
             feature_buffer: None,
             feature_ranges: Vec::new(),
+            fov_fill_buffer: None,
+            fov_fill_vertex_count: 0,
             satellite,
             station,
+            moon,
+            atmosphere,
             planet_vertices_count: 0,
             depth_texture: None,
             depth_size: (0, 0),
@@ -342,6 +353,32 @@ impl Pipeline {
         self.station
             .prepare(queue, camera, model, sun_dir, earth_spin);
 
+        // Moon
+        let moon_pos = Astral::moon_inertial_position(day_of_year, hour);
+        self.moon.prepare(queue, camera, moon_pos, sun_dir);
+
+        // Atmosphere
+        self.atmosphere
+            .prepare(queue, camera, sun_dir, earth_spin);
+
+        // Filled FOV triangles
+        let fov_tris = model.satellite_fov_filled_triangles(elapsed);
+        if !fov_tris.is_empty() {
+            let size = bytemuck::cast_slice::<[f32; 3], u8>(&fov_tris).len() as u64;
+            let buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("FOV Fill Buffer"),
+                size,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&fov_tris));
+            self.fov_fill_buffer = Some(buffer);
+            self.fov_fill_vertex_count = fov_tris.len() as u32;
+        } else {
+            self.fov_fill_buffer = None;
+            self.fov_fill_vertex_count = 0;
+        }
+
         queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(planet_triangles));
         self.planet_vertices_count = planet_triangles.len() as u32;
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
@@ -415,6 +452,20 @@ impl Pipeline {
 
         self.satellite.render(&mut render_pass);
         self.station.render(&mut render_pass);
+        self.moon.render(&mut render_pass);
+
+        // Render filled FOV surfaces using the trajectory pipeline (reuses position-only vertex layout)
+        if let Some(fov_buffer) = &self.fov_fill_buffer {
+            self.trajectory.render_with_buffer(
+                &mut render_pass,
+                &self.uniforms_bind_group,
+                fov_buffer,
+                &[(0, self.fov_fill_vertex_count)],
+            );
+        }
+
+        // Atmosphere rendered last (transparent, alpha-blended)
+        self.atmosphere.render(&mut render_pass);
     }
 }
 

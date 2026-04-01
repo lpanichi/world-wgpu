@@ -190,7 +190,7 @@ impl StationPipeline {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: TextureFormat::Depth24Plus,
-                depth_write_enabled: true,
+                depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
@@ -202,11 +202,11 @@ impl StationPipeline {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &station_shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some("fs_main_cone"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),

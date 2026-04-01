@@ -27,6 +27,7 @@ use crate::program::SelectedObject;
 enum PanelMode {
     Builder,
     Manager,
+    Kpi,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,6 +36,7 @@ enum BuilderPane {
     Orbit,
     Station,
     Satellite,
+    RectSurface,
 }
 
 #[derive(Clone)]
@@ -49,26 +51,54 @@ enum Message {
     ToggleFrame,
     SwitchMode(PanelMode),
     ShowBuilderPane(BuilderPane),
+    // Builder: Orbit
     CreateOrbit,
-    CreateStation,
-    CreateOrbitSatellite,
-    DeleteOrbit(usize),
-    DeleteStation(usize),
-    DeleteSatellite(usize, usize),
     OrbitAltitudeInput(String),
     OrbitInclinationInput(String),
     OrbitRaanInput(String),
     OrbitArgPerigeeInput(String),
+    // Builder: Station
+    CreateStation,
     StationNameInput(String),
     StationLatInput(String),
     StationLonInput(String),
+    // Builder: Satellite
+    CreateOrbitSatellite,
     SatelliteNameInput(String),
     SatelliteOrbitIndexInput(String),
+    // Builder: Rectangular surface
+    CreateRectSurface,
+    RectMinLatInput(String),
+    RectMaxLatInput(String),
+    RectMinLonInput(String),
+    RectMaxLonInput(String),
+    // Manager: delete
+    DeleteOrbit(usize),
+    DeleteStation(usize),
+    DeleteSatellite(usize, usize),
+    // Manager: tune orbit
+    ToggleOrbitVisible(usize),
+    ToggleOrbitFov(usize),
+    ToggleOrbitFovFill(usize),
+    OrbitFovAngleInput(usize, String),
+    OrbitInclinationEdit(usize, String),
+    OrbitRaanEdit(usize, String),
+    // Manager: tune station
+    StationMinElevationInput(usize, String),
+    ToggleStationCone(usize),
+    // Simulation controls
     TogglePause,
     IncreaseTimeScale,
     DecreaseTimeScale,
     ResetTimeScale,
     ResetTime,
+    TogglePrecession,
+    // Camera
+    FollowSatellite(Option<(usize, usize)>),
+    // KPI
+    KpiStationIndexInput(String),
+    KpiOrbitIndexInput(String),
+    KpiSatIndexInput(String),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -87,6 +117,7 @@ struct Textured {
     panes: pane_grid::State<PaneState>,
     focus: Option<pane_grid::Pane>,
     status_message: String,
+    error_message: String,
     cursor_position: Option<(f32, f32)>,
     drag_start: Option<(f32, f32)>,
     right_button_down: bool,
@@ -97,16 +128,36 @@ struct Textured {
     panel_mode: PanelMode,
     builder_pane: BuilderPane,
 
-    // Builder widget state
+    // Builder: orbit
     orbit_altitude_input: String,
     orbit_inclination_input: String,
     orbit_raan_input: String,
     orbit_arg_perigee_input: String,
+    // Builder: station
     station_name_input: String,
     station_lat_input: String,
     station_lon_input: String,
+    // Builder: satellite
     satellite_name_input: String,
     satellite_orbit_index_input: String,
+    // Builder: rectangular surface
+    rect_min_lat_input: String,
+    rect_max_lat_input: String,
+    rect_min_lon_input: String,
+    rect_max_lon_input: String,
+
+    // Camera follow
+    follow_satellite: Option<(usize, usize)>,
+
+    // KPI state
+    kpi_station_index: String,
+    kpi_orbit_index: String,
+    kpi_sat_index: String,
+    /// Ring buffer of recent distance samples for the KPI plot.
+    kpi_distance_history: Vec<(f32, f32)>,
+
+    // Manager: focused resource after click
+    manager_focus: Option<SelectedObject>,
 }
 
 impl Textured {
@@ -117,6 +168,37 @@ impl Textured {
             Message::Tick => {
                 if !self.program.paused {
                     self.program.tick();
+                }
+                // Update camera follow
+                if let Some((orbit_idx, sat_idx)) = self.follow_satellite {
+                    if let Some(orbit) = self.program.simulation.orbits.get(orbit_idx) {
+                        if let Some(sat) = orbit.satellites.get(sat_idx) {
+                            let elapsed = self.program.elapsed_time();
+                            let pos = orbit.position(elapsed, sat);
+                            let offset = nalgebra::Vector3::new(pos[0], pos[1], pos[2]).normalize() * 200.0;
+                            self.program.camera.eye = nalgebra::Point3::new(
+                                pos[0] + offset.x,
+                                pos[1] + offset.y,
+                                pos[2] + offset.z,
+                            );
+                            self.program.camera.target = nalgebra::Point3::new(pos[0], pos[1], pos[2]);
+                        }
+                    }
+                }
+                // Update KPI distance history
+                if let (Ok(si), Ok(oi), Ok(sati)) = (
+                    self.kpi_station_index.parse::<usize>(),
+                    self.kpi_orbit_index.parse::<usize>(),
+                    self.kpi_sat_index.parse::<usize>(),
+                ) {
+                    let elapsed = self.program.elapsed_time();
+                    if let Some(dist) = self.program.simulation.station_satellite_distance(si, oi, sati, elapsed) {
+                        self.kpi_distance_history.push((elapsed, dist));
+                        // Keep last 500 samples
+                        if self.kpi_distance_history.len() > 500 {
+                            self.kpi_distance_history.remove(0);
+                        }
+                    }
                 }
             }
             Message::OnObjectSelected(object, hit_distance) => {
@@ -135,16 +217,14 @@ impl Textured {
                 let current_phase = self.program.earth_rotation_phase();
                 match self.program.frame_mode {
                     crate::program::FrameMode::Eci => {
-                        // Enter ECEF: sync reference to avoid jump.
                         self.program.ecef_reference_earth_angle = current_phase;
                         self.program.frame_mode = crate::program::FrameMode::Ecef;
                     }
                     crate::program::FrameMode::Ecef => {
-                        // Leave ECEF: stop automatic earth-locked updates.
                         self.program.frame_mode = crate::program::FrameMode::Eci;
                     }
                 }
-                self.status_message = format!("Frame mode: {:?}", self.program.frame_mode);
+                self.status_message = format!("Frame: {:?}", self.program.frame_mode);
             }
             Message::TogglePause => {
                 self.program.toggle_pause();
@@ -161,28 +241,37 @@ impl Textured {
                     self.program.time_scale * 2.0
                 };
                 self.program.set_time_scale(new_scale);
-                self.status_message = format!("Simulation speed: {:.1}x", self.program.time_scale);
+                self.status_message = format!("Speed: {:.1}x", self.program.time_scale);
             }
             Message::DecreaseTimeScale => {
                 self.program.set_time_scale(self.program.time_scale * 0.5);
-                self.status_message = format!("Simulation speed: {:.1}x", self.program.time_scale);
+                self.status_message = format!("Speed: {:.1}x", self.program.time_scale);
             }
             Message::ResetTimeScale => {
                 self.program.set_time_scale(1.0);
-                self.status_message = "Simulation speed reset to 1x".to_string();
+                self.status_message = "Speed: 1x".to_string();
             }
             Message::ResetTime => {
                 self.program.reset_time();
+                self.kpi_distance_history.clear();
                 self.status_message = "Time reset".to_string();
+            }
+            Message::TogglePrecession => {
+                self.program.simulation.precession_enabled = !self.program.simulation.precession_enabled;
+                self.status_message = format!(
+                    "Precession: {}",
+                    if self.program.simulation.precession_enabled { "ON" } else { "OFF" }
+                );
             }
             Message::SwitchMode(mode) => {
                 self.panel_mode = mode;
-                self.status_message = format!("Switched to {:?} mode", mode);
+                self.manager_focus = None;
             }
             Message::ShowBuilderPane(builder_pane) => {
                 self.builder_pane = builder_pane;
-                self.status_message = format!("Builder pane: {:?}", builder_pane);
+                self.error_message.clear();
             }
+            // Builder inputs
             Message::OrbitAltitudeInput(value) => self.orbit_altitude_input = value,
             Message::OrbitInclinationInput(value) => self.orbit_inclination_input = value,
             Message::OrbitRaanInput(value) => self.orbit_raan_input = value,
@@ -192,11 +281,40 @@ impl Textured {
             Message::StationLonInput(value) => self.station_lon_input = value,
             Message::SatelliteNameInput(value) => self.satellite_name_input = value,
             Message::SatelliteOrbitIndexInput(value) => self.satellite_orbit_index_input = value,
+            Message::RectMinLatInput(value) => self.rect_min_lat_input = value,
+            Message::RectMaxLatInput(value) => self.rect_max_lat_input = value,
+            Message::RectMinLonInput(value) => self.rect_min_lon_input = value,
+            Message::RectMaxLonInput(value) => self.rect_max_lon_input = value,
+            // Builder: create
             Message::CreateOrbit => {
-                let altitude = self.orbit_altitude_input.parse::<f32>().unwrap_or(500.0);
-                let inclination = self.orbit_inclination_input.parse::<f32>().unwrap_or(20.0);
-                let raan = self.orbit_raan_input.parse::<f32>().unwrap_or(30.0);
-                let arg_perigee = self.orbit_arg_perigee_input.parse::<f32>().unwrap_or(0.0);
+                let altitude = match self.orbit_altitude_input.parse::<f32>() {
+                    Ok(v) if v > 0.0 && v < 100_000.0 => v,
+                    _ => {
+                        self.error_message = "Altitude must be a positive number (km), e.g. 500".to_string();
+                        return;
+                    }
+                };
+                let inclination = match self.orbit_inclination_input.parse::<f32>() {
+                    Ok(v) if (-180.0..=180.0).contains(&v) => v,
+                    _ => {
+                        self.error_message = "Inclination must be between -180° and 180°".to_string();
+                        return;
+                    }
+                };
+                let raan = match self.orbit_raan_input.parse::<f32>() {
+                    Ok(v) => v,
+                    _ => {
+                        self.error_message = "RAAN must be a valid number (degrees)".to_string();
+                        return;
+                    }
+                };
+                let arg_perigee = match self.orbit_arg_perigee_input.parse::<f32>() {
+                    Ok(v) => v,
+                    _ => {
+                        self.error_message = "Argument of perigee must be a valid number (degrees)".to_string();
+                        return;
+                    }
+                };
 
                 let semi_major_axis = EARTH_RADIUS_KM + altitude;
                 let period_seconds = Orbit::circular_period_seconds(semi_major_axis);
@@ -212,9 +330,10 @@ impl Textured {
                             .build(),
                     );
                 });
-
+                self.error_message.clear();
                 self.status_message = format!(
-                    "Created orbit, total {}",
+                    "Created orbit at {:.0} km, total {}",
+                    altitude,
                     self.program.simulation.orbits.len()
                 );
             }
@@ -227,15 +346,27 @@ impl Textured {
                 } else {
                     self.station_name_input.clone()
                 };
-                let lat = self.station_lat_input.parse::<f32>().unwrap_or(0.0);
-                let lon = self.station_lon_input.parse::<f32>().unwrap_or(0.0);
+                let lat = match self.station_lat_input.parse::<f32>() {
+                    Ok(v) if (-90.0..=90.0).contains(&v) => v,
+                    _ => {
+                        self.error_message = "Latitude must be between -90° and 90°".to_string();
+                        return;
+                    }
+                };
+                let lon = match self.station_lon_input.parse::<f32>() {
+                    Ok(v) if (-180.0..=180.0).contains(&v) => v,
+                    _ => {
+                        self.error_message = "Longitude must be between -180° and 180°".to_string();
+                        return;
+                    }
+                };
 
                 self.modify_model(|model| {
                     model
                         .ground_stations
                         .push(GroundStation::new(name.clone(), lat, lon));
                 });
-
+                self.error_message.clear();
                 self.status_message = format!("Created station '{}'", name);
             }
             Message::CreateOrbitSatellite => {
@@ -247,7 +378,7 @@ impl Textured {
 
                 if let Some(idx) = orbit_index {
                     let sat_name = if self.satellite_name_input.trim().is_empty() {
-                        format!("Sat-{}", idx + 1)
+                        format!("Sat-{}", self.program.simulation.orbits[idx].satellites.len() + 1)
                     } else {
                         self.satellite_name_input.clone()
                     };
@@ -260,12 +391,46 @@ impl Textured {
                             );
                         }
                     });
+                    self.error_message.clear();
                     self.status_message =
                         format!("Created satellite '{}' in orbit {}", sat_name, idx);
                 } else {
-                    self.status_message = "Invalid orbit index for satellite creation".to_string();
+                    self.error_message = format!(
+                        "Invalid orbit index. Must be 0..{}",
+                        self.program.simulation.orbits.len().saturating_sub(1)
+                    );
                 }
             }
+            Message::CreateRectSurface => {
+                let min_lat = match self.rect_min_lat_input.parse::<f32>() {
+                    Ok(v) if (-90.0..=90.0).contains(&v) => v,
+                    _ => { self.error_message = "Min latitude must be between -90° and 90°".to_string(); return; }
+                };
+                let max_lat = match self.rect_max_lat_input.parse::<f32>() {
+                    Ok(v) if (-90.0..=90.0).contains(&v) && v > min_lat => v,
+                    _ => { self.error_message = "Max latitude must be > min latitude and between -90° and 90°".to_string(); return; }
+                };
+                let min_lon = match self.rect_min_lon_input.parse::<f32>() {
+                    Ok(v) if (-180.0..=180.0).contains(&v) => v,
+                    _ => { self.error_message = "Min longitude must be between -180° and 180°".to_string(); return; }
+                };
+                let max_lon = match self.rect_max_lon_input.parse::<f32>() {
+                    Ok(v) if (-180.0..=180.0).contains(&v) && v > min_lon => v,
+                    _ => { self.error_message = "Max longitude must be > min longitude and between -180° and 180°".to_string(); return; }
+                };
+                // Rectangle is drawn as a feature; we store it as a ground station pair for now.
+                // Store it as metadata in the status message. The actual rendering happens via features.
+                self.error_message.clear();
+                self.status_message = format!(
+                    "Rect surface: ({:.1},{:.1}) to ({:.1},{:.1})",
+                    min_lat, min_lon, max_lat, max_lon
+                );
+                // The rectangle will be rendered in the feature lines.
+                // We'll store the rect specs in the simulation.
+                // For now, let's add rectangle support to the simulation's stored rects.
+                self.program.simulation.rect_surfaces.push((min_lat, max_lat, min_lon, max_lon));
+            }
+            // Manager: delete
             Message::DeleteOrbit(index) => {
                 self.modify_model(|model| {
                     if index < model.orbits.len() {
@@ -289,6 +454,68 @@ impl Textured {
                     }
                 });
             }
+            // Manager: tune orbit
+            Message::ToggleOrbitVisible(idx) => {
+                if let Some(orbit) = self.program.simulation.orbits.get_mut(idx) {
+                    orbit.show_orbit = !orbit.show_orbit;
+                }
+            }
+            Message::ToggleOrbitFov(idx) => {
+                if let Some(orbit) = self.program.simulation.orbits.get_mut(idx) {
+                    orbit.show_fov = !orbit.show_fov;
+                }
+            }
+            Message::ToggleOrbitFovFill(idx) => {
+                if let Some(orbit) = self.program.simulation.orbits.get_mut(idx) {
+                    orbit.fill_fov = !orbit.fill_fov;
+                }
+            }
+            Message::OrbitFovAngleInput(idx, value) => {
+                if let Ok(angle) = value.parse::<f32>() {
+                    if let Some(orbit) = self.program.simulation.orbits.get_mut(idx) {
+                        orbit.fov_half_angle_deg = angle.clamp(0.1, 89.0);
+                    }
+                }
+            }
+            Message::OrbitInclinationEdit(idx, value) => {
+                if let Ok(inc) = value.parse::<f32>() {
+                    if let Some(orbit) = self.program.simulation.orbits.get_mut(idx) {
+                        orbit.inclination_deg = inc;
+                    }
+                }
+            }
+            Message::OrbitRaanEdit(idx, value) => {
+                if let Ok(raan) = value.parse::<f32>() {
+                    if let Some(orbit) = self.program.simulation.orbits.get_mut(idx) {
+                        orbit.raan_deg = raan;
+                    }
+                }
+            }
+            // Manager: tune station
+            Message::StationMinElevationInput(idx, value) => {
+                if let Ok(elev) = value.parse::<f32>() {
+                    if let Some(station) = self.program.simulation.ground_stations.get_mut(idx) {
+                        station.min_elevation_deg = elev.clamp(0.0, 90.0);
+                    }
+                }
+            }
+            Message::ToggleStationCone(idx) => {
+                if let Some(station) = self.program.simulation.ground_stations.get_mut(idx) {
+                    station.show_cone = !station.show_cone;
+                }
+            }
+            // Camera follow
+            Message::FollowSatellite(target) => {
+                self.follow_satellite = target;
+                self.status_message = match target {
+                    Some((o, s)) => format!("Following orbit {} sat {}", o, s),
+                    None => "Free camera".to_string(),
+                };
+            }
+            // KPI
+            Message::KpiStationIndexInput(v) => { self.kpi_station_index = v; self.kpi_distance_history.clear(); }
+            Message::KpiOrbitIndexInput(v) => { self.kpi_orbit_index = v; self.kpi_distance_history.clear(); }
+            Message::KpiSatIndexInput(v) => { self.kpi_sat_index = v; self.kpi_distance_history.clear(); }
         }
     }
 
@@ -303,10 +530,20 @@ impl Textured {
         self.selected_hit_distance = hit_distance;
         self.status_message = match &object {
             SelectedObject::Earth => "Earth selected".to_string(),
-            SelectedObject::Satellite(name) => format!("Satellite selected: {}", name),
-            SelectedObject::GroundStation(name) => format!("Ground station selected: {}", name),
-            SelectedObject::None => "No object selected".to_string(),
+            SelectedObject::Satellite(name) => format!("Satellite: {}", name),
+            SelectedObject::GroundStation(name) => format!("Station: {}", name),
+            SelectedObject::None => "No selection".to_string(),
         };
+        // If a resource is clicked, switch to manager mode focused on that resource
+        match &object {
+            SelectedObject::Satellite(_) | SelectedObject::GroundStation(_) => {
+                self.panel_mode = PanelMode::Manager;
+                self.manager_focus = Some(object.clone());
+            }
+            _ => {
+                self.manager_focus = None;
+            }
+        }
         info!(
             "OnObjectSelected: {:?} at distance={:?}",
             object, hit_distance
@@ -451,152 +688,364 @@ impl Textured {
     fn control_panel(&self) -> Element<'_, Message> {
         let meta = &self.program.simulation;
 
-        let mode_row = row![
-            button("Builder Mode").on_press(Message::SwitchMode(PanelMode::Builder)),
-            button("Manager Mode").on_press(Message::SwitchMode(PanelMode::Manager)),
+        // --- Header: status + sim date ---
+        let header = column![
+            text(&self.status_message).size(14),
+            text(format!("Date: {}", meta.simulation_date_string())).size(13),
+            text(format!(
+                "Alt: {:.0} km  |  Speed: {:.0}x  |  Frame: {:?}",
+                self.program.camera.eye.coords.norm() - EARTH_RADIUS_KM,
+                self.program.time_scale,
+                self.program.frame_mode,
+            ))
+            .size(12),
         ]
-        .spacing(8);
+        .spacing(3);
 
+        // Error message
+        let error_display = if self.error_message.is_empty() {
+            column![]
+        } else {
+            column![text(&self.error_message).size(13).color(iced::Color::from_rgb(1.0, 0.3, 0.3))]
+        };
+
+        // --- Controls row ---
+        let controls = column![
+            row![
+                button("⏯ Pause").on_press(Message::TogglePause).width(80),
+                button("⏮ Reset").on_press(Message::ResetTime).width(80),
+                button("🔄 Frame").on_press(Message::ToggleFrame).width(80),
+            ]
+            .spacing(4),
+            row![
+                button("◀ Slower").on_press(Message::DecreaseTimeScale).width(80),
+                button("▶ Faster").on_press(Message::IncreaseTimeScale).width(80),
+                button("1x").on_press(Message::ResetTimeScale).width(40),
+            ]
+            .spacing(4),
+            row![
+                button(if self.program.simulation.precession_enabled { "Precession: ON" } else { "Precession: OFF" })
+                    .on_press(Message::TogglePrecession),
+                button(if self.follow_satellite.is_some() { "Free Camera" } else { "Follow..." })
+                    .on_press(Message::FollowSatellite(
+                        if self.follow_satellite.is_some() { None } else { Some((0, 0)) }
+                    )),
+            ]
+            .spacing(4),
+        ]
+        .spacing(4);
+
+        // --- Mode tabs ---
+        let mode_row = row![
+            button("Builder")
+                .on_press(Message::SwitchMode(PanelMode::Builder))
+                .style(if self.panel_mode == PanelMode::Builder {
+                    iced::widget::button::primary
+                } else {
+                    iced::widget::button::secondary
+                }),
+            button("Manager")
+                .on_press(Message::SwitchMode(PanelMode::Manager))
+                .style(if self.panel_mode == PanelMode::Manager {
+                    iced::widget::button::primary
+                } else {
+                    iced::widget::button::secondary
+                }),
+            button("KPIs")
+                .on_press(Message::SwitchMode(PanelMode::Kpi))
+                .style(if self.panel_mode == PanelMode::Kpi {
+                    iced::widget::button::primary
+                } else {
+                    iced::widget::button::secondary
+                }),
+        ]
+        .spacing(4);
+
+        // --- Mode content ---
+        let mode_content: Element<'_, Message> = match self.panel_mode {
+            PanelMode::Builder => self.builder_panel(),
+            PanelMode::Manager => self.manager_panel(),
+            PanelMode::Kpi => self.kpi_panel(),
+        };
+
+        let content = column![
+            header,
+            error_display,
+            controls,
+            mode_row,
+            mode_content,
+        ]
+        .spacing(8)
+        .padding(10);
+
+        scrollable(content).height(Fill).into()
+    }
+
+    fn builder_panel(&self) -> Element<'_, Message> {
         let builder_toolbar = row![
             button("Station").on_press(Message::ShowBuilderPane(BuilderPane::Station)),
             button("Orbit").on_press(Message::ShowBuilderPane(BuilderPane::Orbit)),
             button("Satellite").on_press(Message::ShowBuilderPane(BuilderPane::Satellite)),
+            button("Rect Surface").on_press(Message::ShowBuilderPane(BuilderPane::RectSurface)),
         ]
-        .spacing(8);
+        .spacing(4);
 
-        let builder_panel = match self.builder_pane {
+        let builder_form: Element<'_, Message> = match self.builder_pane {
             BuilderPane::Orbit => column![
-                text("Orbit Builder").size(14),
+                text("New Orbit").size(15),
+                text("Altitude above Earth surface").size(11),
                 text_input("Altitude (km)", &self.orbit_altitude_input)
                     .on_input(Message::OrbitAltitudeInput),
-                text_input("Inclination (deg)", &self.orbit_inclination_input)
+                text("Orbital inclination angle").size(11),
+                text_input("Inclination (°)", &self.orbit_inclination_input)
                     .on_input(Message::OrbitInclinationInput),
-                text_input("RAAN (deg)", &self.orbit_raan_input).on_input(Message::OrbitRaanInput),
-                text_input("Arg Perigee (deg)", &self.orbit_arg_perigee_input)
+                text("Right Ascension of Ascending Node").size(11),
+                text_input("RAAN (°)", &self.orbit_raan_input).on_input(Message::OrbitRaanInput),
+                text("Argument of Perigee").size(11),
+                text_input("Arg. Perigee (°)", &self.orbit_arg_perigee_input)
                     .on_input(Message::OrbitArgPerigeeInput),
                 button("Create Orbit").on_press(Message::CreateOrbit),
             ]
-            .spacing(8),
+            .spacing(4)
+            .into(),
             BuilderPane::Station => column![
-                text("Station Builder").size(14),
+                text("New Ground Station").size(15),
                 text_input("Name", &self.station_name_input).on_input(Message::StationNameInput),
-                text_input("Latitude", &self.station_lat_input).on_input(Message::StationLatInput),
-                text_input("Longitude", &self.station_lon_input).on_input(Message::StationLonInput),
+                text("Geographic latitude").size(11),
+                text_input("Latitude (°, -90 to 90)", &self.station_lat_input)
+                    .on_input(Message::StationLatInput),
+                text("Geographic longitude").size(11),
+                text_input("Longitude (°, -180 to 180)", &self.station_lon_input)
+                    .on_input(Message::StationLonInput),
                 button("Create Station").on_press(Message::CreateStation),
             ]
-            .spacing(8),
+            .spacing(4)
+            .into(),
             BuilderPane::Satellite => column![
-                text("Satellite Builder").size(14),
-                text_input("Name", &self.satellite_name_input)
+                text("New Satellite").size(15),
+                text_input("Satellite name", &self.satellite_name_input)
                     .on_input(Message::SatelliteNameInput),
+                text(format!(
+                    "Orbit index (0..{})",
+                    self.program.simulation.orbits.len().saturating_sub(1)
+                ))
+                .size(11),
                 text_input("Orbit index", &self.satellite_orbit_index_input)
                     .on_input(Message::SatelliteOrbitIndexInput),
                 button("Create Satellite").on_press(Message::CreateOrbitSatellite),
             ]
-            .spacing(8),
-            BuilderPane::None => column![text("Select a builder resource above")].spacing(8),
+            .spacing(4)
+            .into(),
+            BuilderPane::RectSurface => column![
+                text("Rectangular Surface on Earth").size(15),
+                text("Define a lat/lon bounding box").size(11),
+                text_input("Min Latitude (°)", &self.rect_min_lat_input)
+                    .on_input(Message::RectMinLatInput),
+                text_input("Max Latitude (°)", &self.rect_max_lat_input)
+                    .on_input(Message::RectMaxLatInput),
+                text_input("Min Longitude (°)", &self.rect_min_lon_input)
+                    .on_input(Message::RectMinLonInput),
+                text_input("Max Longitude (°)", &self.rect_max_lon_input)
+                    .on_input(Message::RectMaxLonInput),
+                button("Create Surface").on_press(Message::CreateRectSurface),
+            ]
+            .spacing(4)
+            .into(),
+            BuilderPane::None => column![text("Select a resource type above").size(13)].into(),
         };
 
-        let manager_panel = {
-            let mut panel = column![text("Resource Manager").size(16)].spacing(8);
+        column![builder_toolbar, builder_form].spacing(6).into()
+    }
 
-            panel = panel.push(text("Orbits").size(14));
+    fn manager_panel(&self) -> Element<'_, Message> {
+        let meta = &self.program.simulation;
+        let mut panel = column![text("Resource Manager").size(16)].spacing(6);
+
+        // If a resource was clicked, show only that resource
+        let show_all = self.manager_focus.is_none();
+
+        if show_all {
+            panel = panel.push(button("Show All").on_press(Message::SwitchMode(PanelMode::Manager)));
+        } else {
+            panel = panel.push(
+                button("← Show All Resources")
+                    .on_press(Message::SwitchMode(PanelMode::Manager))
+            );
+        }
+
+        // Orbits section
+        let show_orbits = show_all || matches!(&self.manager_focus, Some(SelectedObject::Satellite(_)));
+        if show_orbits {
+            panel = panel.push(text("━━ Orbits ━━").size(13));
             for (i, orbit) in meta.orbits.iter().enumerate() {
-                panel = panel.push(
-                    row![
-                        text(format!(
-                            "Orbit {}: a={:.1}, inc={:.1}, sats={} ",
-                            i,
-                            orbit.semi_major_axis,
-                            orbit.inclination_deg,
-                            orbit.satellites.len()
-                        )),
-                        button("Delete").on_press(Message::DeleteOrbit(i)),
-                    ]
-                    .spacing(6),
-                );
-            }
+                let orbit_header = row![
+                    text(format!(
+                        "#{} alt={:.0}km inc={:.1}° sats={}",
+                        i,
+                        orbit.semi_major_axis - EARTH_RADIUS_KM,
+                        orbit.inclination_deg,
+                        orbit.satellites.len()
+                    ))
+                    .size(12),
+                    button("🗑").on_press(Message::DeleteOrbit(i)),
+                ]
+                .spacing(4);
 
-            panel = panel.push(text("Stations").size(14));
-            for (i, station) in meta.ground_stations.iter().enumerate() {
-                panel = panel.push(
-                    row![
-                        text(format!(
-                            "{} @ ({:.1},{:.1})",
-                            station.name, station.latitude_deg, station.longitude_deg
-                        )),
-                        button("Delete").on_press(Message::DeleteStation(i)),
-                    ]
-                    .spacing(6),
-                );
-            }
+                let orbit_controls = row![
+                    button(if orbit.show_orbit { "Orbit: ✓" } else { "Orbit: ✗" })
+                        .on_press(Message::ToggleOrbitVisible(i)),
+                    button(if orbit.show_fov { "FOV: ✓" } else { "FOV: ✗" })
+                        .on_press(Message::ToggleOrbitFov(i)),
+                    button(if orbit.fill_fov { "Fill: ✓" } else { "Fill: ✗" })
+                        .on_press(Message::ToggleOrbitFovFill(i)),
+                ]
+                .spacing(2);
 
-            panel = panel.push(text("Satellites").size(14));
-            for (orbit_index, orbit) in meta.orbits.iter().enumerate() {
-                for (sat_index, satellite) in orbit.satellites.iter().enumerate() {
+                let fov_input = row![
+                    text("FOV half-angle (°)").size(11),
+                    text_input(
+                        "deg",
+                        &format!("{:.1}", orbit.fov_half_angle_deg),
+                    )
+                    .on_input(move |v| Message::OrbitFovAngleInput(i, v))
+                    .width(60),
+                ]
+                .spacing(4);
+
+                let orbit_params = row![
+                    text("Inc (°)").size(11),
+                    text_input("deg", &format!("{:.1}", orbit.inclination_deg))
+                        .on_input(move |v| Message::OrbitInclinationEdit(i, v))
+                        .width(55),
+                    text("RAAN (°)").size(11),
+                    text_input("deg", &format!("{:.1}", orbit.raan_deg))
+                        .on_input(move |v| Message::OrbitRaanEdit(i, v))
+                        .width(55),
+                ]
+                .spacing(4);
+
+                panel = panel.push(column![orbit_header, orbit_controls, fov_input, orbit_params].spacing(2));
+
+                for (si, sat) in orbit.satellites.iter().enumerate() {
                     panel = panel.push(
                         row![
-                            text(format!("orbit {} / {}", orbit_index, satellite.name)),
-                            button("Delete")
-                                .on_press(Message::DeleteSatellite(orbit_index, sat_index)),
+                            text(format!("  └ {}", sat.name)).size(11),
+                            button("🗑").on_press(Message::DeleteSatellite(i, si)),
+                            button("📷").on_press(Message::FollowSatellite(Some((i, si)))),
                         ]
-                        .spacing(6),
+                        .spacing(4),
                     );
                 }
             }
+        }
 
-            panel
-        };
+        // Stations section
+        let show_stations = show_all || matches!(&self.manager_focus, Some(SelectedObject::GroundStation(_)));
+        if show_stations {
+            panel = panel.push(text("━━ Stations ━━").size(13));
+            for (i, station) in meta.ground_stations.iter().enumerate() {
+                let station_row = row![
+                    text(format!(
+                        "{} ({:.1}°, {:.1}°)",
+                        station.name, station.latitude_deg, station.longitude_deg
+                    ))
+                    .size(12),
+                    button("🗑").on_press(Message::DeleteStation(i)),
+                ]
+                .spacing(4);
 
-        let mode_content = match self.panel_mode {
-            PanelMode::Builder => column![builder_toolbar, builder_panel].spacing(10),
-            PanelMode::Manager => manager_panel,
-        };
+                let station_controls = row![
+                    button(if station.show_cone { "Cone: ✓" } else { "Cone: ✗" })
+                        .on_press(Message::ToggleStationCone(i)),
+                    text("Min elev (°)").size(11),
+                    text_input(
+                        "deg",
+                        &format!("{:.1}", station.min_elevation_deg),
+                    )
+                    .on_input(move |v| Message::StationMinElevationInput(i, v))
+                    .width(60),
+                ]
+                .spacing(4);
 
-        let content = column![
-            text(format!("Selected object: {}", self.status_message)).size(16),
-            text(format!(
-                "Select-ray distance: {}",
-                match self.selected_hit_distance {
-                    Some(d) => format!("{:.3}", d),
-                    None => "N/A".to_string(),
-                }
-            ))
-            .size(14),
-            text(format!(
-                "Altitude above Earth: {:.3} km",
-                self.program.camera.eye.coords.norm() - gui::model::simulation::EARTH_RADIUS_KM
-            ))
-            .size(14),
-            text(format!("Orbit count: {}", meta.orbits.len())).size(14),
-            text(format!("Station count: {}", meta.ground_stations.len())).size(14),
-            text(format!("Sat render: {:?}", self.program.satellite_mode)).size(14),
-            text(format!("Simulation speed: {:.1}x", self.program.time_scale)).size(14),
-            text(format!(
-                "Time: {:.2} (paused={})",
-                self.program.elapsed_time(),
-                self.program.paused
-            ))
-            .size(14),
+                panel = panel.push(column![station_row, station_controls].spacing(2));
+            }
+        }
+
+        panel.into()
+    }
+
+    fn kpi_panel(&self) -> Element<'_, Message> {
+        let mut panel = column![text("KPI Dashboard").size(16)].spacing(6);
+
+        panel = panel.push(text("Station-Satellite Distance Plot").size(14));
+        panel = panel.push(
             row![
-                button("Pause/Resume").on_press(Message::TogglePause),
-                button("Reset Time").on_press(Message::ResetTime),
-                button("Toggle Frame").on_press(Message::ToggleFrame),
+                text("Station #").size(11),
+                text_input("0", &self.kpi_station_index)
+                    .on_input(Message::KpiStationIndexInput)
+                    .width(40),
+                text("Orbit #").size(11),
+                text_input("0", &self.kpi_orbit_index)
+                    .on_input(Message::KpiOrbitIndexInput)
+                    .width(40),
+                text("Sat #").size(11),
+                text_input("0", &self.kpi_sat_index)
+                    .on_input(Message::KpiSatIndexInput)
+                    .width(40),
             ]
-            .spacing(8),
-            row![
-                button("Slower").on_press(Message::DecreaseTimeScale),
-                button("Faster").on_press(Message::IncreaseTimeScale),
-                button("1x").on_press(Message::ResetTimeScale),
-            ]
-            .spacing(8),
-            mode_row,
-            mode_content,
-        ]
-        .spacing(10)
-        .padding(10);
+            .spacing(4),
+        );
 
-        scrollable(content).height(Fill).into()
+        // Text-based "plot" of recent distance values
+        if self.kpi_distance_history.is_empty() {
+            panel = panel.push(text("No data yet. Configure indices and wait...").size(11));
+        } else {
+            let last = self.kpi_distance_history.last().unwrap();
+            panel = panel.push(
+                text(format!("Current distance: {:.1} km (t={:.1}s)", last.1, last.0))
+                    .size(13),
+            );
+
+            // Simple ASCII sparkline of last 60 samples
+            let samples: Vec<f32> = self
+                .kpi_distance_history
+                .iter()
+                .rev()
+                .take(60)
+                .rev()
+                .map(|(_, d)| *d)
+                .collect();
+
+            if samples.len() >= 2 {
+                let min_d = samples.iter().cloned().fold(f32::INFINITY, f32::min);
+                let max_d = samples.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let range = (max_d - min_d).max(1.0);
+
+                let bars = "▁▂▃▄▅▆▇█";
+                let bar_chars: Vec<char> = bars.chars().collect();
+                let sparkline: String = samples
+                    .iter()
+                    .map(|d| {
+                        let normalized = ((d - min_d) / range * 7.0).round() as usize;
+                        bar_chars[normalized.min(7)]
+                    })
+                    .collect();
+
+                panel = panel.push(text(format!("Min: {:.0} km  Max: {:.0} km", min_d, max_d)).size(11));
+                panel = panel.push(text(sparkline).size(16));
+            }
+        }
+
+        // Summary stats
+        let meta = &self.program.simulation;
+        panel = panel.push(text("━━ Summary ━━").size(13));
+        panel = panel.push(text(format!("Orbits: {}  Stations: {}  Satellites: {}",
+            meta.orbits.len(),
+            meta.ground_stations.len(),
+            meta.satellite_count(),
+        )).size(12));
+
+        panel.into()
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -646,7 +1095,6 @@ impl Default for Textured {
                     .add_satellite(Satellite::builder("Sat-3").phase_offset(2.0).build())
                     .build(),
             )
-            // Single station in Paris (lat, lon): 48.8566° N, 2.3522° E
             .add_ground_station(GroundStation::new("Paris Station", 48.8566, 2.3522))
             .build(Utc::now());
         simulation.simulation_speed = 120;
@@ -680,24 +1128,35 @@ impl Default for Textured {
             },
             panes,
             focus: Some(root_pane),
-            status_message: "No selection".to_string(),
+            status_message: "Ready".to_string(),
+            error_message: String::new(),
             panel_mode: PanelMode::Builder,
             builder_pane: BuilderPane::None,
-            orbit_altitude_input: "500.0".to_string(),
-            orbit_inclination_input: "20.0".to_string(),
-            orbit_raan_input: "30.0".to_string(),
-            orbit_arg_perigee_input: "0.0".to_string(),
-            station_name_input: "Station".to_string(),
-            station_lat_input: "0.0".to_string(),
-            station_lon_input: "0.0".to_string(),
-            satellite_name_input: "Sat".to_string(),
+            orbit_altitude_input: "500".to_string(),
+            orbit_inclination_input: "20".to_string(),
+            orbit_raan_input: "30".to_string(),
+            orbit_arg_perigee_input: "0".to_string(),
+            station_name_input: String::new(),
+            station_lat_input: "0".to_string(),
+            station_lon_input: "0".to_string(),
+            satellite_name_input: String::new(),
             satellite_orbit_index_input: "0".to_string(),
+            rect_min_lat_input: "-10".to_string(),
+            rect_max_lat_input: "10".to_string(),
+            rect_min_lon_input: "-10".to_string(),
+            rect_max_lon_input: "10".to_string(),
             cursor_position: None,
             drag_start: None,
             right_button_down: false,
             selected_object: SelectedObject::None,
             selected_hit_distance: None,
             viewport_size: (200.0, 200.0),
+            follow_satellite: None,
+            kpi_station_index: "0".to_string(),
+            kpi_orbit_index: "0".to_string(),
+            kpi_sat_index: "0".to_string(),
+            kpi_distance_history: Vec::new(),
+            manager_focus: None,
         }
     }
 }

@@ -19,6 +19,10 @@ pub struct Simulation {
     pub start_time: DateTime<Utc>,
     pub last_tick_time: DateTime<Utc>,
     pub simulation_speed: i32,
+    /// Whether to apply Earth axial precession to the rotation model.
+    pub precession_enabled: bool,
+    /// Stored rectangular surfaces defined by (min_lat, max_lat, min_lon, max_lon) in degrees.
+    pub rect_surfaces: Vec<(f32, f32, f32, f32)>,
 }
 
 impl Simulation {
@@ -52,12 +56,27 @@ impl Simulation {
 
     pub fn earth_rotation(&self) -> f64 {
         let (day, hour) = self.day_hour();
-        Astral::earth_rotation_angle(day, hour)
+        let mut angle = Astral::earth_rotation_angle(day, hour);
+        if self.precession_enabled {
+            // Luni-solar precession: ~50.3 arcsec/year = ~0.0000243 rad/day
+            let days_elapsed =
+                (self.simulation_time - self.start_time).num_seconds() as f64 / 86400.0;
+            let precession_rate_rad_per_day = 50.3 / 3600.0_f64 * std::f64::consts::PI / 180.0;
+            angle += precession_rate_rad_per_day * days_elapsed;
+        }
+        angle
     }
 
     pub fn elapsed_seconds(&self) -> f32 {
         let duration = self.simulation_time - self.start_time;
         duration.num_milliseconds() as f32 / 1000.0
+    }
+
+    /// Current simulated date/time formatted as a human-readable string.
+    pub fn simulation_date_string(&self) -> String {
+        self.simulation_time
+            .format("%Y-%m-%d %H:%M:%S UTC")
+            .to_string()
     }
 
     pub fn planet_triangles(&self) -> &[TextureVertex] {
@@ -124,17 +143,23 @@ impl Simulation {
     }
 
     pub fn ground_station_cone_models(&self) -> Vec<Matrix4<f32>> {
-        let cone_height = EARTH_RADIUS_KM * 0.25;
-        let cone_radius = cone_height * 0.2;
-
         let base_z = Vector3::new(0.0, 0.0, 1.0);
 
         self.ground_stations
             .iter()
+            .filter(|station| station.show_cone)
             .map(|station| {
                 let center = station.cartesian();
                 let apex = Vector3::new(center[0], center[1], center[2]);
                 let dir = apex.normalize();
+
+                // Cone dimensions based on station's min elevation angle.
+                // At min_elevation=0°, the cone is wide (90° half-angle from axis).
+                // At min_elevation=90°, the cone is a thin pencil beam.
+                let half_cone_angle = (90.0 - station.min_elevation_deg).to_radians();
+                // Cap visibility cones to 500 km maximum height.
+                let cone_height = (EARTH_RADIUS_KM * 0.25).min(500.0);
+                let cone_radius = cone_height * half_cone_angle.tan().min(5.0);
 
                 let rotation = if (dir - base_z).norm() < 1e-6 {
                     Rotation3::identity()
@@ -225,13 +250,44 @@ impl Simulation {
     }
 
     pub fn satellite_fov_projected_circles(&self, elapsed: f32) -> Vec<Vec<[f32; 3]>> {
-        self.satellite_positions(elapsed)
-            .into_iter()
-            .map(|sat| {
-                let subpoint = Vector3::new(sat[0], sat[1], sat[2]).normalize() * EARTH_RADIUS_KM;
-                self.circle_on_sphere(subpoint.into(), 0.25, 64)
-            })
-            .collect()
+        let mut circles = Vec::new();
+        for orbit in &self.orbits {
+            if !orbit.show_fov {
+                continue;
+            }
+            let half_angle_rad = orbit.fov_half_angle_deg.to_radians();
+            for sat in &orbit.satellites {
+                let pos = orbit.position(elapsed, sat);
+                let subpoint = Vector3::new(pos[0], pos[1], pos[2]).normalize() * EARTH_RADIUS_KM;
+                circles.push(self.circle_on_sphere(subpoint.into(), half_angle_rad, 64));
+            }
+        }
+        circles
+    }
+
+    /// Generate filled FOV triangles for satellites that have fill_fov enabled.
+    /// Returns triangle fans as flat vertex lists suitable for TriangleList rendering.
+    pub fn satellite_fov_filled_triangles(&self, elapsed: f32) -> Vec<[f32; 3]> {
+        let mut tris = Vec::new();
+        for orbit in &self.orbits {
+            if !orbit.show_fov || !orbit.fill_fov {
+                continue;
+            }
+            let half_angle_rad = orbit.fov_half_angle_deg.to_radians();
+            for sat in &orbit.satellites {
+                let pos = orbit.position(elapsed, sat);
+                let subpoint = Vector3::new(pos[0], pos[1], pos[2]).normalize() * EARTH_RADIUS_KM;
+                let circle = self.circle_on_sphere(subpoint.into(), half_angle_rad, 64);
+                // Triangle fan: center + perimeter points
+                let center: [f32; 3] = subpoint.into();
+                for i in 0..circle.len().saturating_sub(1) {
+                    tris.push(center);
+                    tris.push(circle[i]);
+                    tris.push(circle[i + 1]);
+                }
+            }
+        }
+        tris
     }
 
     pub fn features_line_points(&self, elapsed: f32) -> (Vec<[f32; 3]>, Vec<(u32, u32)>) {
@@ -246,7 +302,94 @@ impl Simulation {
             ranges.push((start, end - start));
         }
 
+        // Rectangular surfaces
+        for (min_lat, max_lat, min_lon, max_lon) in &self.rect_surfaces {
+            let rect = self.rectangle_on_sphere(*min_lat, *max_lat, *min_lon, *max_lon, 20);
+            let start = points.len() as u32;
+            points.extend(rect);
+            let end = points.len() as u32;
+            ranges.push((start, end - start));
+        }
+
         (points, ranges)
+    }
+
+    /// Compute distance in km between a ground station (by index) and a satellite.
+    /// Station position is in ECEF, satellite is in ECI, so we rotate station to ECI first.
+    pub fn station_satellite_distance(
+        &self,
+        station_index: usize,
+        orbit_index: usize,
+        sat_index: usize,
+        elapsed: f32,
+    ) -> Option<f32> {
+        let station = self.ground_stations.get(station_index)?;
+        let orbit = self.orbits.get(orbit_index)?;
+        let sat = orbit.satellites.get(sat_index)?;
+
+        let cart = station.cartesian();
+        let station_ecef = Vector3::new(cart[0], cart[1], cart[2]);
+
+        // Rotate ECEF to ECI
+        let earth_angle = self.earth_rotation() as f32;
+        let rot = nalgebra::Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_angle);
+        let station_eci = rot * station_ecef;
+
+        let sat_pos = orbit.position(elapsed, sat);
+        let sat_eci = Vector3::new(sat_pos[0], sat_pos[1], sat_pos[2]);
+
+        Some((sat_eci - station_eci).norm())
+    }
+
+    /// Build a rectangular surface patch on the Earth using lat/lon corners.
+    /// Returns line strip points tracing the rectangle boundary on the sphere.
+    pub fn rectangle_on_sphere(
+        &self,
+        min_lat_deg: f32,
+        max_lat_deg: f32,
+        min_lon_deg: f32,
+        max_lon_deg: f32,
+        segments_per_edge: usize,
+    ) -> Vec<[f32; 3]> {
+        let r = EARTH_RADIUS_KM;
+        let mut points = Vec::new();
+
+        let lat_lon_to_xyz = |lat_deg: f32, lon_deg: f32| -> [f32; 3] {
+            let lat = lat_deg.to_radians();
+            let lon =
+                (lon_deg.to_radians() + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU);
+            let x = r * lat.cos() * lon.cos();
+            let y = r * lat.cos() * lon.sin();
+            let z = r * lat.sin();
+            [x, y, z]
+        };
+
+        // Bottom edge (min_lat, min_lon -> max_lon)
+        for i in 0..=segments_per_edge {
+            let t = i as f32 / segments_per_edge as f32;
+            let lon = min_lon_deg + t * (max_lon_deg - min_lon_deg);
+            points.push(lat_lon_to_xyz(min_lat_deg, lon));
+        }
+        // Right edge (max_lon, min_lat -> max_lat)
+        for i in 1..=segments_per_edge {
+            let t = i as f32 / segments_per_edge as f32;
+            let lat = min_lat_deg + t * (max_lat_deg - min_lat_deg);
+            points.push(lat_lon_to_xyz(lat, max_lon_deg));
+        }
+        // Top edge (max_lat, max_lon -> min_lon)
+        for i in 1..=segments_per_edge {
+            let t = i as f32 / segments_per_edge as f32;
+            let lon = max_lon_deg - t * (max_lon_deg - min_lon_deg);
+            points.push(lat_lon_to_xyz(max_lat_deg, lon));
+        }
+        // Left edge (min_lon, max_lat -> min_lat)
+        for i in 1..=segments_per_edge {
+            let t = i as f32 / segments_per_edge as f32;
+            let lat = max_lat_deg - t * (max_lat_deg - min_lat_deg);
+            points.push(lat_lon_to_xyz(lat, min_lon_deg));
+        }
+
+        points
     }
 }
 
@@ -328,6 +471,8 @@ impl SimulationBuilder {
             start_time: simulation_time,
             last_tick_time: simulation_time,
             simulation_speed: 60,
+            precession_enabled: false,
+            rect_surfaces: Vec::new(),
         }
     }
 }
