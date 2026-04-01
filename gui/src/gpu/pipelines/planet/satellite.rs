@@ -17,10 +17,9 @@ pub struct SatelliteUniforms {
     pub camera_right: [f32; 4],
     pub camera_up: [f32; 4],
     pub sun_direction: [f32; 4],
-    pub earth_rotation_angle: f32,
-    pub frame_mode: u32,
     pub satellite_scale: f32,
-    pub _padding: u32,
+    pub _padding0: [u32; 3],
+    pub _padding1: [u32; 4],
     pub models: [[[f32; 4]; 4]; MAX_SATELLITES],
 }
 
@@ -31,10 +30,9 @@ impl SatelliteUniforms {
             camera_right: [1.0, 0.0, 0.0, 0.0],
             camera_up: [0.0, 1.0, 0.0, 0.0],
             sun_direction: [1.0, 0.0, 0.0, 0.0],
-            earth_rotation_angle: 0.0,
-            frame_mode: 0,
             satellite_scale: 1.0,
-            _padding: 0,
+            _padding0: [0, 0, 0],
+            _padding1: [0, 0, 0, 0],
             models: [nalgebra::Matrix4::identity().into(); MAX_SATELLITES],
         }
     }
@@ -236,9 +234,7 @@ impl SatellitePipeline {
         camera: &Camera,
         model: &Simulation,
         elapsed: f32,
-        frame_mode: u32,
         sun_dir: Vector3<f32>,
-        earth_rotation_angle: f32,
     ) {
         let satellite_models = model.satellite_models(elapsed);
         let instances = satellite_models.len().min(MAX_SATELLITES);
@@ -248,8 +244,6 @@ impl SatellitePipeline {
         uniforms.view_proj = camera.build_view_projection_matrix().into();
 
         uniforms.sun_direction = [sun_dir.x, sun_dir.y, sun_dir.z, 0.0];
-        uniforms.earth_rotation_angle = earth_rotation_angle;
-        uniforms.frame_mode = frame_mode;
         uniforms.satellite_scale = EARTH_RADIUS_KM * Simulation::SATELLITE_SCALE_FACTOR;
 
         let camera_forward = (camera.target - camera.eye).normalize();

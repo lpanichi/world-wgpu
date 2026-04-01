@@ -16,6 +16,7 @@ workspace = true
 [dependencies]
 geometry.workspace = true
 astro.workspace = true
+chrono = "0.4"
 
 iced.workspace = true
 winit.workspace = true

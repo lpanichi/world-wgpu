@@ -17,7 +17,7 @@ use crate::{
     gpu::pipelines::planet::station::StationPipeline,
     model::simulation::Simulation,
 };
-use nalgebra::{Rotation3, Vector3};
+use nalgebra::Vector3;
 
 const ORBIT_SAMPLES: usize = 128;
 
@@ -262,8 +262,8 @@ impl Pipeline {
         model: &Simulation,
         camera: &Camera,
         elapsed: f32,
+        earth_rotation_angle: f32,
         satellite_mode: SatelliteRenderMode,
-        frame_mode: u32,
     ) {
         let width = viewport.physical_width();
         let height = viewport.physical_height();
@@ -294,10 +294,8 @@ impl Pipeline {
             mapped_at_creation: false,
         });
 
-        let elapsed_secs = elapsed as f64;
-        let day_of_year = 172 + ((elapsed_secs / 86400.0) as u32 % 365);
-        let hour = (elapsed_secs / 3600.0) % 24.0;
-        let earth_spin = Astral::earth_rotation_angle(day_of_year, hour) as f32;
+        let (day_of_year, hour) = model.day_hour();
+        let earth_spin = earth_rotation_angle;
 
         // Fill orbit trajectory points and ranges.
         let (orbit_points, orbit_ranges) = model.orbit_line_points(ORBIT_SAMPLES);
@@ -330,44 +328,19 @@ impl Pipeline {
         )
         .normalize();
 
-        let frame_mode_u32 = frame_mode;
-        let sun_dir = if frame_mode_u32 == 0 {
-            sun_dir_eci
-        } else {
-            // Convert inertial light direction into Earth-fixed frame.
-            let earth_rot = Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_spin);
-            earth_rot * sun_dir_eci
-        };
+        // Sun direction is always ECI. Camera behavior handles frame motion.
+        let sun_dir = sun_dir_eci;
 
-        let uniforms = Uniforms::new(
-            camera,
-            [sun_dir.x, sun_dir.y, sun_dir.z],
-            earth_spin,
-            frame_mode_u32,
-        );
+        let uniforms = Uniforms::new(camera, [sun_dir.x, sun_dir.y, sun_dir.z], earth_spin);
 
         // Satellites
         self.satellite.set_render_mode(satellite_mode);
-        self.satellite.prepare(
-            queue,
-            camera,
-            model,
-            elapsed,
-            frame_mode_u32,
-            sun_dir,
-            earth_spin,
-        );
+        self.satellite
+            .prepare(queue, camera, model, elapsed, sun_dir);
 
         // Stations
-        self.station.prepare(
-            queue,
-            camera,
-            model,
-            elapsed,
-            frame_mode_u32,
-            sun_dir,
-            earth_spin,
-        );
+        self.station
+            .prepare(queue, camera, model, sun_dir, earth_spin);
 
         queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(planet_triangles));
         self.planet_vertices_count = planet_triangles.len() as u32;

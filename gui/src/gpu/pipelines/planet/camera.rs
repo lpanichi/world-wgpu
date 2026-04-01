@@ -87,6 +87,13 @@ impl Camera {
         self.refresh_up();
     }
 
+    pub fn transform(&mut self, isometry: &Isometry3<f32>) {
+        self.eye = isometry * self.eye;
+        self.target = isometry * self.target;
+        let rotated_up = isometry * self.up.into_inner();
+        self.up = Unit::new_normalize(rotated_up);
+    }
+
     pub fn rotate_around_up(&mut self, angle_rad: f32) {
         // Use ECI up direction (Earth's north pole fixed in inertial space) for orbiting the camera.
         let axis = Vector3::z_axis();

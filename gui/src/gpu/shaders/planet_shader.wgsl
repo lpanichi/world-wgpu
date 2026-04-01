@@ -2,7 +2,6 @@ struct Uniforms {
     view_proj: mat4x4<f32>,
     sun_direction: vec4<f32>,
     earth_rotation_angle: f32,
-    frame_mode: u32,
     _padding: vec2<u32>,
 }
 @group(1) @binding(0) var<uniform> uniforms: Uniforms;
@@ -37,9 +36,8 @@ fn vs_main(
     out.texture_coords = model.texture_coords;
 
     let model_pos = vec4<f32>(model.position, 1.0);
-    let rotation = earth_rotation(uniforms.earth_rotation_angle);
-
-    let world_pos = select(model_pos, rotation * model_pos, uniforms.frame_mode == 0u);
+    let ecef_to_eci = earth_rotation(uniforms.earth_rotation_angle);
+    let world_pos = ecef_to_eci * model_pos;
 
     out.world_position = world_pos.xyz;
     out.clip_position = uniforms.view_proj * world_pos;

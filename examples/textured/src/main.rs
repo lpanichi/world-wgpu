@@ -1,4 +1,6 @@
+use chrono::Utc;
 use env_logger::Env;
+
 use gui::{
     gpu::pipelines::planet::{camera::Camera, satellite::SatelliteRenderMode},
     model::{
@@ -16,7 +18,7 @@ use iced::{
     time::{self, milliseconds},
     widget::{button, column, container, pane_grid, row, scrollable, shader, text, text_input},
 };
-use log::info;
+use log::{debug, info};
 
 mod program;
 use crate::program::SelectedObject;
@@ -44,12 +46,6 @@ enum Message {
     PaneClicked(pane_grid::Pane),
     PaneDragged(pane_grid::DragEvent),
     PaneResized(pane_grid::ResizeEvent),
-    AddOrbit,
-    RemoveOrbit,
-    AddSatellite(usize),
-    RemoveSatellite(usize),
-    ToggleOrbit(usize),
-    ToggleSatelliteMode,
     ToggleFrame,
     SwitchMode(PanelMode),
     ShowBuilderPane(BuilderPane),
@@ -72,8 +68,6 @@ enum Message {
     IncreaseTimeScale,
     DecreaseTimeScale,
     ResetTimeScale,
-    AddStation,
-    RemoveStation,
     ResetTime,
 }
 
@@ -121,7 +115,9 @@ impl Textured {
             Message::KeyboardEvent(event) => self.handle_keyboard_event(event),
             Message::Event(event) => self.handle_event(event),
             Message::Tick => {
-                // Tick drives redraw and optionally simulation progression via elapsed_time.
+                if !self.program.paused {
+                    self.program.tick();
+                }
             }
             Message::OnObjectSelected(object, hit_distance) => {
                 self.handle_object_selected(object, hit_distance)
@@ -134,74 +130,20 @@ impl Textured {
             Message::PaneResized(event) => {
                 self.panes.resize(event.split, event.ratio);
             }
-            Message::AddOrbit => {
-                self.modify_model(|model| {
-                    let idx = model.orbits.len();
-                    let altitude_km = 500.0 + idx as f32 * 150.0;
-                    let semi_major_axis = EARTH_RADIUS_KM + altitude_km;
-                    let period_seconds = Orbit::circular_period_seconds(semi_major_axis);
-                    model.orbits.push(
-                        Orbit::builder(semi_major_axis, period_seconds)
-                            .inclination(10.0 + idx as f32 * 5.0)
-                            .raan(15.0 + idx as f32 * 10.0)
-                            .show_orbit(true)
-                            .add_satellite(
-                                Satellite::builder(format!("Sat-{}", idx * 2 + 1))
-                                    .phase_offset(0.0)
-                                    .build(),
-                            )
-                            .build(),
-                    );
-                });
-                self.status_message =
-                    format!("Added orbit. Total {}", self.program.model.orbits.len());
-            }
-            Message::RemoveOrbit => {
-                self.modify_model(|model| {
-                    if !model.orbits.is_empty() {
-                        model.orbits.pop();
-                    }
-                });
-                self.status_message =
-                    format!("Removed orbit. Total {}", self.program.model.orbits.len());
-            }
-            Message::ToggleOrbit(index) => {
-                self.modify_model(|model| {
-                    if let Some(orbit) = model.orbits.get_mut(index) {
-                        orbit.show_orbit = !orbit.show_orbit;
-                    }
-                });
-            }
-            Message::AddSatellite(index) => {
-                self.modify_model(|model| {
-                    if let Some(orbit) = model.orbits.get_mut(index) {
-                        let sat_id = orbit.satellites.len() + 1;
-                        orbit.satellites.push(
-                            Satellite::builder(format!("{}-{}", index, sat_id))
-                                .phase_offset(0.0)
-                                .build(),
-                        );
-                    }
-                });
-            }
-            Message::RemoveSatellite(index) => {
-                self.modify_model(|model| {
-                    if let Some(orbit) = model.orbits.get_mut(index) {
-                        orbit.satellites.pop();
-                    }
-                });
-            }
-            Message::ToggleSatelliteMode => {
-                self.program.satellite_mode = match self.program.satellite_mode {
-                    SatelliteRenderMode::Cube => SatelliteRenderMode::Dot,
-                    SatelliteRenderMode::Dot => SatelliteRenderMode::Cube,
-                };
-            }
+
             Message::ToggleFrame => {
-                self.program.frame_mode = match self.program.frame_mode {
-                    crate::program::FrameMode::Eci => crate::program::FrameMode::Ecef,
-                    crate::program::FrameMode::Ecef => crate::program::FrameMode::Eci,
-                };
+                let current_phase = self.program.earth_rotation_phase();
+                match self.program.frame_mode {
+                    crate::program::FrameMode::Eci => {
+                        // Enter ECEF: sync reference to avoid jump.
+                        self.program.ecef_reference_earth_angle = current_phase;
+                        self.program.frame_mode = crate::program::FrameMode::Ecef;
+                    }
+                    crate::program::FrameMode::Ecef => {
+                        // Leave ECEF: stop automatic earth-locked updates.
+                        self.program.frame_mode = crate::program::FrameMode::Eci;
+                    }
+                }
                 self.status_message = format!("Frame mode: {:?}", self.program.frame_mode);
             }
             Message::TogglePause => {
@@ -232,21 +174,6 @@ impl Textured {
             Message::ResetTime => {
                 self.program.reset_time();
                 self.status_message = "Time reset".to_string();
-            }
-            Message::AddStation => {
-                self.modify_model(|model| {
-                    let id = model.ground_stations.len();
-                    model.ground_stations.push(GroundStation::new(
-                        format!("Station {}", id + 1),
-                        -30.0 + (id as f32 * 20.0).rem_euclid(180.0),
-                        -180.0 + (id as f32 * 45.0).rem_euclid(360.0),
-                    ));
-                });
-            }
-            Message::RemoveStation => {
-                self.modify_model(|model| {
-                    model.ground_stations.pop();
-                });
             }
             Message::SwitchMode(mode) => {
                 self.panel_mode = mode;
@@ -286,12 +213,17 @@ impl Textured {
                     );
                 });
 
-                self.status_message =
-                    format!("Created orbit, total {}", self.program.model.orbits.len());
+                self.status_message = format!(
+                    "Created orbit, total {}",
+                    self.program.simulation.orbits.len()
+                );
             }
             Message::CreateStation => {
                 let name = if self.station_name_input.trim().is_empty() {
-                    format!("Station {}", self.program.model.ground_stations.len() + 1)
+                    format!(
+                        "Station {}",
+                        self.program.simulation.ground_stations.len() + 1
+                    )
                 } else {
                     self.station_name_input.clone()
                 };
@@ -311,7 +243,7 @@ impl Textured {
                     .satellite_orbit_index_input
                     .parse::<usize>()
                     .ok()
-                    .filter(|idx| *idx < self.program.model.orbits.len());
+                    .filter(|idx| *idx < self.program.simulation.orbits.len());
 
                 if let Some(idx) = orbit_index {
                     let sat_name = if self.satellite_name_input.trim().is_empty() {
@@ -361,9 +293,9 @@ impl Textured {
     }
 
     fn modify_model(&mut self, mut f: impl FnMut(&mut Simulation)) {
-        let mut simulation = (*self.program.model).clone();
+        let mut simulation = self.program.simulation.clone();
         f(&mut simulation);
-        self.program.model = std::sync::Arc::new(simulation);
+        self.program.simulation = simulation;
     }
 
     fn handle_object_selected(&mut self, object: SelectedObject, hit_distance: Option<f32>) {
@@ -471,11 +403,12 @@ impl Textured {
                         {
                             let local_pos = (cursor_pos.0 - x, cursor_pos.1 - y);
 
-                            if let Some((origin, direction)) =
+                            if let Some((origin, direction, cursor_ndc)) =
                                 self.program.world_ray_from_cursor(local_pos, (w, h))
                             {
                                 let (selected, hit_distance) =
-                                    self.program.pick_object(origin, direction);
+                                    self.program
+                                        .pick_object(origin, direction, cursor_ndc, (w, h));
                                 self.update(Message::OnObjectSelected(selected, hit_distance));
                             }
                         }
@@ -516,7 +449,7 @@ impl Textured {
     }
 
     fn control_panel(&self) -> Element<'_, Message> {
-        let meta = &self.program.model;
+        let meta = &self.program.simulation;
 
         let mode_row = row![
             button("Builder Mode").on_press(Message::SwitchMode(PanelMode::Builder)),
@@ -620,7 +553,7 @@ impl Textured {
             PanelMode::Manager => manager_panel,
         };
 
-        let mut content = column![
+        let content = column![
             text(format!("Selected object: {}", self.status_message)).size(16),
             text(format!(
                 "Select-ray distance: {}",
@@ -693,7 +626,7 @@ impl Default for Textured {
         let orbit1_a = earth_radius + 500.0;
         let orbit2_a = earth_radius + 800.0;
 
-        let model = Simulation::builder()
+        let mut simulation = Simulation::builder()
             .add_orbit(
                 Orbit::builder(orbit1_a, Orbit::circular_period_seconds(orbit1_a))
                     .inclination(20.0)
@@ -713,9 +646,10 @@ impl Default for Textured {
                     .add_satellite(Satellite::builder("Sat-3").phase_offset(2.0).build())
                     .build(),
             )
-            .add_ground_station(GroundStation::new("Station A", 30.0, 10.0))
-            .add_ground_station(GroundStation::new("Station B", -20.0, 100.0))
-            .build();
+            // Single station in Paris (lat, lon): 48.8566° N, 2.3522° E
+            .add_ground_station(GroundStation::new("Paris Station", 48.8566, 2.3522))
+            .build(Utc::now());
+        simulation.simulation_speed = 120;
 
         let camera_distance = earth_radius + 10_000.0;
         let camera = Camera::new(
@@ -735,13 +669,12 @@ impl Default for Textured {
 
         Self {
             program: program::Program {
-                model: std::sync::Arc::new(model),
+                simulation,
                 camera,
-                start_time: std::time::Instant::now(),
                 satellite_mode: SatelliteRenderMode::Dot,
                 frame_mode: crate::program::FrameMode::Eci,
+                ecef_reference_earth_angle: 0.0,
                 paused: false,
-                paused_elapsed: 0.0,
                 time_scale: 120.0,
                 pick_radius_scale: 2.0,
             },
@@ -770,7 +703,11 @@ impl Default for Textured {
 }
 
 fn main() -> iced::Result {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    // Enable debug logs only for this example crate ("textured").
+    // Override with RUST_LOG when needed, e.g. RUST_LOG=info or RUST_LOG=textured=debug
+    env_logger::Builder::from_env(Env::default().default_filter_or("textured=debug")).init();
+
+    debug!("logging initialized for module: {}", module_path!());
 
     iced::application(Textured::default, Textured::update, Textured::view)
         .subscription(|_state: &Textured| {

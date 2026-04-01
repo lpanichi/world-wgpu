@@ -1,3 +1,6 @@
+use astro::Astral;
+use chrono::{DateTime, Datelike, TimeDelta, Timelike, Utc};
+
 use crate::{
     gpu::pipelines::planet::vertex::{TextureVertex, into_textured_vertex},
     model::{ground_station::GroundStation, orbit::Orbit},
@@ -12,6 +15,10 @@ pub struct Simulation {
     pub orbits: Vec<Orbit>,
     pub ground_stations: Vec<GroundStation>,
     pub planet_triangles: Vec<TextureVertex>,
+    pub simulation_time: DateTime<Utc>,
+    pub start_time: DateTime<Utc>,
+    pub last_tick_time: DateTime<Utc>,
+    pub simulation_speed: i32,
 }
 
 impl Simulation {
@@ -24,6 +31,33 @@ impl Simulation {
             ground_stations: Vec::new(),
             planet_triangles,
         }
+    }
+
+    pub fn tick(&mut self) -> TimeDelta {
+        let new_last_tick_time = Utc::now();
+        let simulation_time_progress =
+            (new_last_tick_time - self.last_tick_time) * self.simulation_speed;
+        self.simulation_time += simulation_time_progress;
+        self.last_tick_time = new_last_tick_time;
+        simulation_time_progress
+    }
+
+    pub fn day_hour(&self) -> (u32, f64) {
+        let hour = self.simulation_time.hour() as f64
+            + (self.simulation_time.minute() as f64 / 60.0)
+            + (self.simulation_time.second() as f64 / 3600.0)
+            + (self.simulation_time.nanosecond() as f64 / 1_000_000_000.0 / 3600.0);
+        (self.simulation_time.ordinal(), hour)
+    }
+
+    pub fn earth_rotation(&self) -> f64 {
+        let (day, hour) = self.day_hour();
+        Astral::earth_rotation_angle(day, hour)
+    }
+
+    pub fn elapsed_seconds(&self) -> f32 {
+        let duration = self.simulation_time - self.start_time;
+        duration.num_milliseconds() as f32 / 1000.0
     }
 
     pub fn planet_triangles(&self) -> &[TextureVertex] {
@@ -62,6 +96,7 @@ impl Simulation {
         positions
     }
 
+    // TODO move this in program
     pub const SATELLITE_SCALE_FACTOR: f32 = 0.005; // relative to Earth radius
 
     pub fn satellite_models(&self, elapsed: f32) -> Vec<Matrix4<f32>> {
@@ -75,7 +110,7 @@ impl Simulation {
             .collect()
     }
 
-    pub fn ground_station_models(&self, _elapsed: f32) -> Vec<Matrix4<f32>> {
+    pub fn ground_station_models(&self) -> Vec<Matrix4<f32>> {
         self.ground_stations
             .iter()
             .map(|station| {
@@ -88,7 +123,7 @@ impl Simulation {
             .collect()
     }
 
-    pub fn ground_station_cone_models(&self, _elapsed: f32) -> Vec<Matrix4<f32>> {
+    pub fn ground_station_cone_models(&self) -> Vec<Matrix4<f32>> {
         let cone_height = EARTH_RADIUS_KM * 0.25;
         let cone_radius = cone_height * 0.2;
 
@@ -258,7 +293,7 @@ mod tests {
                     .add_satellite(Satellite::builder("B").phase_offset(0.0).build())
                     .build(),
             )
-            .build();
+            .build(Utc::now());
 
         let positions = sim.satellite_positions(0.0);
         assert_eq!(positions.len(), 2);
@@ -284,11 +319,15 @@ impl SimulationBuilder {
         self
     }
 
-    pub fn build(self) -> Simulation {
+    pub fn build(self, simulation_time: DateTime<Utc>) -> Simulation {
         Simulation {
             orbits: self.orbits,
             ground_stations: self.ground_stations,
             planet_triangles: self.planet_triangles,
+            simulation_time: simulation_time,
+            start_time: simulation_time,
+            last_tick_time: simulation_time,
+            simulation_speed: 60,
         }
     }
 }

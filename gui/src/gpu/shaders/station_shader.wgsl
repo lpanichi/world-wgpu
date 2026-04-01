@@ -1,12 +1,10 @@
 struct VsUniforms {
     view_proj: mat4x4<f32>,
-    camera_right: vec4<f32>,
-    camera_up: vec4<f32>,
     sun_direction: vec4<f32>,
     earth_rotation_angle: f32,
-    frame_mode: u32,
-    station_scale: f32,
-    _padding: u32,
+    _padding0: u32,
+    _padding1: u32,
+    _padding2: u32,
     models: array<mat4x4<f32>, 64>,
 }
 
@@ -39,12 +37,10 @@ fn vs_main_cube(input: VertexInput, @builtin(instance_index) inst: u32) -> Verte
     let model = uniforms.models[inst];
     let world_position = model * vec4<f32>(input.position, 1.0);
     let world_normal = normalize((model * vec4<f32>(input.position, 0.0)).xyz);
-
-    let is_eci = uniforms.frame_mode == 0u;
     let ecef_to_eci = earth_rotation(uniforms.earth_rotation_angle);
 
-    let station_position = select(world_position, ecef_to_eci * world_position, is_eci);
-    let station_normal = select(world_normal, (ecef_to_eci * vec4<f32>(world_normal, 0.0)).xyz, is_eci);
+    let station_position = ecef_to_eci * world_position;
+    let station_normal = (ecef_to_eci * vec4<f32>(world_normal, 0.0)).xyz;
 
     out.world_normal = normalize(station_normal);
     out.position = uniforms.view_proj * station_position;
@@ -58,12 +54,10 @@ fn vs_main_cone(input: VertexInput, @builtin(instance_index) inst: u32) -> Verte
     let model = uniforms.models[inst];
     let world_position = model * vec4<f32>(input.position, 1.0);
     let world_normal = normalize((model * vec4<f32>(input.position, 0.0)).xyz);
-
-    let is_eci = uniforms.frame_mode == 0u;
     let ecef_to_eci = earth_rotation(uniforms.earth_rotation_angle);
 
-    let station_position = select(world_position, ecef_to_eci * world_position, is_eci);
-    let station_normal = select(world_normal, (ecef_to_eci * vec4<f32>(world_normal, 0.0)).xyz, is_eci);
+    let station_position = ecef_to_eci * world_position;
+    let station_normal = (ecef_to_eci * vec4<f32>(world_normal, 0.0)).xyz;
 
     out.world_normal = normalize(station_normal);
     out.position = uniforms.view_proj * station_position;

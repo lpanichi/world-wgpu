@@ -24,7 +24,10 @@ impl GroundStation {
     pub fn cartesian(&self) -> [f32; 3] {
         // Planet radius is in kilometers via Simulation constant.
         let lat = self.latitude_deg.to_radians();
-        let lon = self.longitude_deg.to_radians();
+        // Planet UV mapping uses lon=0 at the texture seam, so shift by PI to align
+        // geographic longitudes with the current Earth texture orientation.
+        let lon = (self.longitude_deg.to_radians() + std::f32::consts::PI)
+            .rem_euclid(2.0 * std::f32::consts::PI);
 
         let x = lat.cos() * lon.cos();
         let y = lat.cos() * lon.sin();

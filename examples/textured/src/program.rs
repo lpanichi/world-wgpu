@@ -1,11 +1,11 @@
+use chrono::Utc;
 use gui::{
-    astro::Astral,
     gpu::pipelines::planet::{camera::Camera, pipeline::Pipeline, satellite::SatelliteRenderMode},
     model::simulation::Simulation,
 };
 use iced::{Rectangle, mouse, wgpu, widget::shader};
-use nalgebra::{Point3, Point4, Rotation3, Vector3};
-use std::sync::Arc;
+use log::{debug, info};
+use nalgebra::{Isometry3, Point3, Point4, Rotation3, Translation3, Vector3};
 
 #[derive(Clone, Debug)]
 pub enum SelectedObject {
@@ -22,62 +22,119 @@ pub enum FrameMode {
 }
 
 pub struct Program {
-    pub model: Arc<Simulation>,
+    pub simulation: Simulation,
     pub camera: Camera,
-    pub start_time: std::time::Instant,
     pub satellite_mode: SatelliteRenderMode,
     pub frame_mode: FrameMode,
+    pub ecef_reference_earth_angle: f32,
     pub paused: bool,
-    pub paused_elapsed: f32,
     pub time_scale: f32,
     pub pick_radius_scale: f32,
 }
 
 impl Program {
+    pub fn earth_rotation_phase(&self) -> f32 {
+        self.simulation.earth_rotation() as f32
+    }
+
     pub fn elapsed_time(&self) -> f32 {
-        if self.paused {
-            self.paused_elapsed
-        } else {
-            self.paused_elapsed + self.start_time.elapsed().as_secs_f32() * self.time_scale
-        }
+        self.simulation.elapsed_seconds()
     }
 
     pub fn set_time_scale(&mut self, new_scale: f32) {
         let clamped = new_scale.clamp(0.1, 50_000.0);
-        let elapsed = self.elapsed_time();
-        self.paused_elapsed = elapsed;
-        self.start_time = std::time::Instant::now();
+        self.simulation.simulation_speed = clamped.max(1.0).round() as i32;
         self.time_scale = clamped;
     }
 
     pub fn toggle_pause(&mut self) {
         if self.paused {
-            self.start_time = std::time::Instant::now();
+            self.simulation.last_tick_time = Utc::now();
             self.paused = false;
         } else {
-            self.paused_elapsed = self.elapsed_time();
             self.paused = true;
         }
     }
 
     pub fn reset_time(&mut self) {
-        self.start_time = std::time::Instant::now();
-        self.paused_elapsed = 0.0;
+        let now = Utc::now();
+        self.simulation.simulation_time = now;
+        self.simulation.start_time = now;
+        self.simulation.last_tick_time = now;
+        self.ecef_reference_earth_angle = 0.0;
         self.paused = false;
     }
 
-    fn earth_rotation_angle(&self) -> f32 {
-        let elapsed_secs = self.elapsed_time() as f64;
-        let day_of_year = 172 + ((elapsed_secs / 86400.0) as u32 % 365);
-        let hour = (elapsed_secs / 3600.0) % 24.0;
-        Astral::earth_rotation_angle(day_of_year, hour) as f32
+    pub fn tick(&mut self) {
+        let phase_before = self.earth_rotation_phase();
+        self.simulation.tick();
+        let phase_after = self.earth_rotation_phase();
+
+        if self.frame_mode == FrameMode::Ecef {
+            let world_delta = (phase_after - phase_before).rem_euclid(std::f32::consts::TAU);
+            let camera_delta = -world_delta;
+            if camera_delta.abs() > f32::EPSILON {
+                let rot = Rotation3::from_axis_angle(&Vector3::z_axis(), camera_delta);
+                let iso = Isometry3::from_parts(Translation3::identity(), rot.into());
+                self.camera.transform(&iso);
+            }
+
+            self.ecef_reference_earth_angle = phase_after;
+        }
+    }
+
+    fn frame_adjusted_camera(&self, width: f32, height: f32, _earth_phase: f32) -> Camera {
+        let mut camera = self.camera.clone();
+        camera.change_aspect(width, height);
+        camera
+    }
+
+    /// Project a world space point into screen pixel coordinates.
+    ///
+    /// - `world_pos` is in the same coordinate frame as the current program frame mode.
+    /// - `viewport_size` is in pixels (width, height).
+    ///
+    /// Returns `Some((x_px, y_px))` when the point can be projected and is in front of camera projection,
+    /// or `None` when the point is behind the camera or the viewport is invalid.
+    pub fn world_to_screen(
+        &self,
+        world_pos: Point3<f32>,
+        viewport_size: (f32, f32),
+    ) -> Option<(f32, f32)> {
+        let (width, height) = viewport_size;
+        if width <= 0.0 || height <= 0.0 {
+            return None;
+        }
+
+        let camera = self.frame_adjusted_camera(width, height, self.earth_rotation_phase());
+        let view_proj = camera.build_view_projection_matrix();
+
+        let world_point = Point4::new(world_pos.x, world_pos.y, world_pos.z, 1.0);
+        let clip = view_proj * world_point;
+        if clip.w.abs() < f32::EPSILON {
+            return None;
+        }
+
+        let ndc_x = clip.x / clip.w;
+        let ndc_y = clip.y / clip.w;
+        let ndc_z = clip.z / clip.w;
+
+        // Keep points in front of the near plane and inside [-1,1] clip range.
+        if ndc_z < -1.0 || ndc_z > 1.0 {
+            return None;
+        }
+
+        let pixel_x = (ndc_x * 0.5 + 0.5) * width;
+        let pixel_y = (1.0 - (ndc_y * 0.5 + 0.5)) * height;
+
+        Some((pixel_x, pixel_y))
     }
 
     pub fn world_ray_from_cursor(
         &self,
         cursor: (f32, f32),
         viewport_size: (f32, f32),
-    ) -> Option<(Point3<f32>, Vector3<f32>)> {
+    ) -> Option<(Point3<f32>, Vector3<f32>, (f32, f32))> {
         let (width, height) = viewport_size;
         if width <= 0.0 || height <= 0.0 {
             return None;
@@ -86,8 +143,7 @@ impl Program {
         let ndc_x = ((cursor.0 + 0.5) / width) * 2.0 - 1.0;
         let ndc_y = 1.0 - ((cursor.1 + 0.5) / height) * 2.0;
 
-        let mut camera = self.camera.clone();
-        camera.change_aspect(width, height);
+        let camera = self.frame_adjusted_camera(width, height, self.earth_rotation_phase());
         let view_proj = camera.build_view_projection_matrix();
         let inv = view_proj.try_inverse()?;
 
@@ -114,13 +170,15 @@ impl Program {
         );
 
         let direction = (far_point - near_point).normalize();
-        Some((near_point, direction))
+        Some((near_point, direction, (ndc_x, ndc_y)))
     }
 
     pub fn pick_object(
         &self,
         origin: Point3<f32>,
         direction: Vector3<f32>,
+        _cursor_ndc: (f32, f32),
+        _viewport_size: (f32, f32),
     ) -> (SelectedObject, Option<f32>) {
         let pick_radius_scale = self.pick_radius_scale;
         let mut best_hit: (SelectedObject, f32, f32) =
@@ -135,9 +193,19 @@ impl Program {
                 return;
             }
 
+            let screen_position = self.world_to_screen(center, _viewport_size);
+            debug!(
+                "pick info resource={:?} cursor_ndc={:?} viewport={:?} world_center={:?} screen_pos={:?}",
+                obj, _cursor_ndc, _viewport_size, center, screen_position,
+            );
+
             let camera_to_object = to_center / depth;
             let angle = (direction.dot(&camera_to_object).clamp(-1.0, 1.0).acos()).to_degrees();
             let angular_radius = (radius / depth).asin().to_degrees() * pick_radius_scale;
+            info!(
+                "resource {:?} angle {} radius {}",
+                obj, angle, angular_radius
+            );
 
             if angle <= angular_radius {
                 if angle < best_hit.1 || (angle == best_hit.1 && depth < best_hit.2) {
@@ -153,9 +221,10 @@ impl Program {
         );
 
         let elapsed = self.elapsed_time();
-        let earth_rotation_angle = self.earth_rotation_angle();
-        let ecef_to_eci = Rotation3::from_axis_angle(&Vector3::z_axis(), earth_rotation_angle);
-        let eci_to_ecef = Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_rotation_angle);
+        let earth_rotation_angle = self.simulation.earth_rotation() as f32;
+        // The WGSL station_shader uses column-major earth_rotation(θ) which evaluates to
+        // x'=cθ·x+sθ·y, y'=-sθ·x+cθ·y — that is Rz(-θ). Negate here to match.
+        let ecef_to_eci = Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_rotation_angle);
 
         let dot_radius = gui::model::simulation::EARTH_RADIUS_KM
             * gui::model::simulation::Simulation::SATELLITE_SCALE_FACTOR;
@@ -164,17 +233,10 @@ impl Program {
             SatelliteRenderMode::Cube => dot_radius * 0.25,
         };
 
-        for (orbit_index, orbit) in self.model.orbits.iter().enumerate() {
+        for (orbit_index, orbit) in self.simulation.orbits.iter().enumerate() {
             for sat in orbit.satellites.iter() {
                 let pos_eci = orbit.position(elapsed, sat);
-                let center_eci = Vector3::new(pos_eci[0], pos_eci[1], pos_eci[2]);
-                let center = match self.frame_mode {
-                    FrameMode::Eci => Point3::new(center_eci.x, center_eci.y, center_eci.z),
-                    FrameMode::Ecef => {
-                        let v = eci_to_ecef * center_eci;
-                        Point3::new(v.x, v.y, v.z)
-                    }
-                };
+                let center = Point3::new(pos_eci[0], pos_eci[1], pos_eci[2]);
                 consider_object(
                     SelectedObject::Satellite(format!("{}:{}", orbit_index, sat.name)),
                     center,
@@ -183,16 +245,11 @@ impl Program {
             }
         }
 
-        for station in &self.model.ground_stations {
+        for station in &self.simulation.ground_stations {
             let cart = station.cartesian();
             let center_ecef = Vector3::new(cart[0], cart[1], cart[2]);
-            let center = match self.frame_mode {
-                FrameMode::Eci => {
-                    let v = ecef_to_eci * center_ecef;
-                    Point3::new(v.x, v.y, v.z)
-                }
-                FrameMode::Ecef => Point3::new(center_ecef.x, center_ecef.y, center_ecef.z),
-            };
+            let center_eci = ecef_to_eci * center_ecef;
+            let center = Point3::new(center_eci.x, center_eci.y, center_eci.z);
 
             // Model cube vertices are in [-0.1, 0.1], so bounding-sphere radius scales by 0.1*sqrt(3).
             let station_radius = (0.173_205_08 * station.cube_size).max(25.0);
@@ -222,26 +279,30 @@ impl<Message> shader::Program<Message> for Program {
         _cursor: mouse::Cursor,
         bounds: iced::Rectangle,
     ) -> Self::Primitive {
-        let mut camera = self.camera.clone();
-        camera.change_aspect(bounds.width, bounds.height);
+        // TODO compute next frame date here from simulation then update camera
+        // if necessary and pass this date to render pipeline
+        let elapsed = self.elapsed_time();
+        let earth_phase = self.earth_rotation_phase();
+
+        let camera = self.frame_adjusted_camera(bounds.width, bounds.height, earth_phase);
 
         Primitive {
-            model: Arc::clone(&self.model),
+            simulation: self.simulation.clone(),
             camera,
-            elapsed: self.elapsed_time(),
+            elapsed,
+            earth_rotation_angle: earth_phase,
             satellite_mode: self.satellite_mode,
-            frame_mode: self.frame_mode,
         }
     }
 }
 
 #[derive(Debug)]
 pub struct Primitive {
-    model: Arc<Simulation>,
+    simulation: Simulation,
     camera: Camera,
     elapsed: f32,
+    earth_rotation_angle: f32,
     satellite_mode: SatelliteRenderMode,
-    frame_mode: FrameMode,
 }
 
 impl shader::Primitive for Primitive {
@@ -255,21 +316,16 @@ impl shader::Primitive for Primitive {
         bounds: &iced::Rectangle,
         viewport: &shader::Viewport,
     ) {
-        let frame_mode_u32 = match self.frame_mode {
-            FrameMode::Eci => 0,
-            FrameMode::Ecef => 1,
-        };
-
         pipeline.prepare(
             device,
             queue,
             bounds,
             viewport,
-            &self.model,
+            &self.simulation,
             &self.camera,
             self.elapsed,
+            self.earth_rotation_angle,
             self.satellite_mode,
-            frame_mode_u32,
         );
     }
 

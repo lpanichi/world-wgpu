@@ -6,7 +6,7 @@ use iced::wgpu::{
     self, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,
     BufferDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderStages, TextureFormat,
 };
-use nalgebra::{ Vector3};
+use nalgebra::Vector3;
 
 const MAX_STATIONS: usize = 64;
 
@@ -14,13 +14,9 @@ const MAX_STATIONS: usize = 64;
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct StationUniforms {
     pub view_proj: [[f32; 4]; 4],
-    pub camera_right: [f32; 4],
-    pub camera_up: [f32; 4],
     pub sun_direction: [f32; 4],
     pub earth_rotation_angle: f32,
-    pub frame_mode: u32,
-    pub station_scale: f32,
-    pub _padding: u32,
+    pub _padding: [u32; 3],
     pub models: [[[f32; 4]; 4]; MAX_STATIONS],
 }
 
@@ -28,13 +24,9 @@ impl StationUniforms {
     pub fn new() -> Self {
         Self {
             view_proj: nalgebra::Matrix4::identity().into(),
-            camera_right: [1.0, 0.0, 0.0, 0.0],
-            camera_up: [0.0, 1.0, 0.0, 0.0],
             sun_direction: [1.0, 0.0, 0.0, 0.0],
             earth_rotation_angle: 0.0,
-            frame_mode: 0,
-            station_scale: 1.0,
-            _padding: 0,
+            _padding: [0, 0, 0],
             models: [nalgebra::Matrix4::identity().into(); MAX_STATIONS],
         }
     }
@@ -242,27 +234,16 @@ impl StationPipeline {
         queue: &wgpu::Queue,
         camera: &Camera,
         model: &Simulation,
-        elapsed: f32,
-        frame_mode: u32,
         sun_dir: Vector3<f32>,
         earth_rotation_angle: f32,
     ) {
-        let station_models = model.ground_station_models(elapsed);
+        let station_models = model.ground_station_models();
         self.station_instances = station_models.len().min(MAX_STATIONS) as u32;
 
         let mut uniforms = StationUniforms::new();
         uniforms.view_proj = camera.build_view_projection_matrix().into();
-        uniforms.frame_mode = frame_mode;
-
         uniforms.sun_direction = [sun_dir.x, sun_dir.y, sun_dir.z, 0.0];
         uniforms.earth_rotation_angle = earth_rotation_angle;
-
-        let camera_forward = (camera.target - camera.eye).normalize();
-        let camera_right = camera_forward.cross(&camera.up.into_inner()).normalize();
-        let camera_up = camera_right.cross(&camera_forward).normalize();
-
-        uniforms.camera_right = [camera_right.x, camera_right.y, camera_right.z, 0.0];
-        uniforms.camera_up = [camera_up.x, camera_up.y, camera_up.z, 0.0];
 
         for (i, model_mat) in station_models.into_iter().take(MAX_STATIONS).enumerate() {
             uniforms.models[i] = model_mat.into();
@@ -270,14 +251,11 @@ impl StationPipeline {
 
         queue.write_buffer(&self.station_uniforms, 0, bytemuck::bytes_of(&uniforms));
 
-        let cone_models = model.ground_station_cone_models(elapsed);
+        let cone_models = model.ground_station_cone_models();
         let mut cone_uniforms = StationUniforms::new();
         cone_uniforms.view_proj = uniforms.view_proj;
-        cone_uniforms.camera_right = uniforms.camera_right;
-        cone_uniforms.camera_up = uniforms.camera_up;
         cone_uniforms.sun_direction = uniforms.sun_direction;
         cone_uniforms.earth_rotation_angle = uniforms.earth_rotation_angle;
-        cone_uniforms.frame_mode = uniforms.frame_mode;
 
         for (i, model_mat) in cone_models.into_iter().take(MAX_STATIONS).enumerate() {
             cone_uniforms.models[i] = model_mat.into();

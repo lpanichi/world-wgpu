@@ -146,7 +146,9 @@ impl Astral {
     pub fn earth_rotation_angle(day_of_year: u32, hour: f64) -> f64 {
         let d = (day_of_year as f64 - 1.0) + hour / 24.0;
         // simplified sidereal day angle from J2000 baseline approximation
-        let gmst = (18.697_374_558 + 24.065_709_824_419_08 * d).rem_euclid(24.0);
+        let gmst = (crate::astro::constants::GMST_BASE_HOURS
+            + crate::astro::constants::GMST_RATE_HOURS_PER_DAY * d)
+            .rem_euclid(24.0);
         (gmst * 15.0_f64).to_radians()
     }
 

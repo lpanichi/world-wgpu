@@ -3,26 +3,13 @@ struct VsUniforms {
     camera_right: vec4<f32>,
     camera_up: vec4<f32>,
     sun_direction: vec4<f32>,
-    earth_rotation_angle: f32,
-    frame_mode: u32,
     satellite_scale: f32,
-    _padding: u32,
+    _padding: vec4<u32>,
     models: array<mat4x4<f32>, 64>,
 }
 
 @group(0) @binding(0)
 var<uniform> uniforms: VsUniforms;
-
-fn earth_rotation(angle: f32) -> mat4x4<f32> {
-    let c = cos(angle);
-    let s = sin(angle);
-    return mat4x4<f32>(
-        vec4<f32>(c, -s, 0.0, 0.0),
-        vec4<f32>(s, c, 0.0, 0.0),
-        vec4<f32>(0.0, 0.0, 1.0, 0.0),
-        vec4<f32>(0.0, 0.0, 0.0, 1.0),
-    );
-}
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -40,12 +27,8 @@ fn vs_main_cube(input: VertexInput, @builtin(instance_index) inst: u32) -> Verte
     let world_position = model * vec4<f32>(input.position, 1.0);
     let world_normal = normalize((model * vec4<f32>(input.position, 0.0)).xyz);
 
-    let is_eci = uniforms.frame_mode == 0u;
-    let ecef_to_eci = earth_rotation(uniforms.earth_rotation_angle);
-    let eci_to_ecef = earth_rotation(-uniforms.earth_rotation_angle);
-
-    let satellite_position = select(eci_to_ecef * world_position, world_position, is_eci);
-    let satellite_normal = select((eci_to_ecef * vec4<f32>(world_normal, 0.0)).xyz, world_normal, is_eci);
+    let satellite_position = world_position;
+    let satellite_normal = world_normal;
 
     out.world_normal = normalize(satellite_normal);
     out.position = uniforms.view_proj * satellite_position;
@@ -66,12 +49,8 @@ fn vs_main_dot(input: VertexInput, @builtin(instance_index) inst: u32) -> Vertex
         uniforms.camera_up.xyz * input.position.y * dot_radius_world;
 
     let position = center.xyz + world_offset;
-    let is_eci = uniforms.frame_mode == 0u;
-    let ecef_to_eci = earth_rotation(uniforms.earth_rotation_angle);
-    let eci_to_ecef = earth_rotation(-uniforms.earth_rotation_angle);
-
-    let sat_position = select(eci_to_ecef * vec4<f32>(position, 1.0), vec4<f32>(position, 1.0), is_eci);
-    let sat_normal = select((eci_to_ecef * vec4<f32>(world_normal, 0.0)).xyz, world_normal, is_eci);
+    let sat_position = vec4<f32>(position, 1.0);
+    let sat_normal = world_normal;
 
     out.world_normal = normalize(sat_normal);
     out.position = uniforms.view_proj * sat_position;
