@@ -5,6 +5,7 @@ use crate::model::satellite::Satellite;
 
 #[derive(Debug, Clone)]
 pub struct Orbit {
+    pub name: String,
     pub semi_major_axis: f32,
     pub period_seconds: f32,
     pub inclination_deg: f32,
@@ -23,6 +24,7 @@ pub struct Orbit {
 impl Orbit {
     pub fn builder(semi_major_axis: f32, period_seconds: f32) -> OrbitBuilder {
         OrbitBuilder {
+            name: "Orbit".to_string(),
             semi_major_axis,
             period_seconds,
             inclination_deg: 0.0,
@@ -111,6 +113,7 @@ impl Orbit {
 }
 
 pub struct OrbitBuilder {
+    pub name: String,
     pub semi_major_axis: f32,
     pub period_seconds: f32,
     pub inclination_deg: f32,
@@ -124,6 +127,11 @@ pub struct OrbitBuilder {
 }
 
 impl OrbitBuilder {
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+
     pub fn inclination(mut self, degrees: f32) -> Self {
         self.inclination_deg = degrees;
         self
@@ -151,6 +159,7 @@ impl OrbitBuilder {
 
     pub fn build(self) -> Orbit {
         Orbit {
+            name: self.name,
             semi_major_axis: self.semi_major_axis,
             period_seconds: self.period_seconds,
             inclination_deg: self.inclination_deg,
