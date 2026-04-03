@@ -38,7 +38,7 @@ impl GroundStation {
         let y = lat.cos() * lon.sin();
         let z = lat.sin();
 
-        let base = Vector3::new(x, y, z) * crate::model::simulation::EARTH_RADIUS_KM;
+        let base = Vector3::new(x, y, z) * crate::model::system::EARTH_RADIUS_KM;
         let offset = base.normalize() * self.height;
         (base + offset).into()
     }

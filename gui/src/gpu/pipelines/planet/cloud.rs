@@ -1,6 +1,6 @@
 use crate::gpu::pipelines::planet::camera::Camera;
 use crate::gpu::pipelines::planet::vertex::PositionVertex;
-use crate::model::simulation::EARTH_RADIUS_KM;
+use crate::model::system::EARTH_RADIUS_KM;
 use geometry::tesselation::build_sphere;
 use iced::wgpu::{
     self, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,

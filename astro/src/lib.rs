@@ -154,4 +154,70 @@ impl Astral {
 
         [[ct, -st, 0.0], [st, ct, 0.0], [0.0, 0.0, 1.0]]
     }
+
+    /// Sun position in ECI coordinates (unit vector from Earth center) for given day and UTC hour.
+    pub fn sun_inertial_position(day_of_year: u32, hour: f64) -> [f64; 3] {
+        let d = (day_of_year as f64 - 1.0) + hour / 24.0;
+        let l = (280.46 + 0.985_647_4 * d).to_radians();
+        let g = (357.528 + 0.985_600_3 * d).to_radians();
+        let lambda =
+            l + (1.915_f64).to_radians() * g.sin() + (0.020_f64).to_radians() * (2.0 * g).sin();
+        let eps = (23.439 - 0.000_000_4 * d).to_radians();
+
+        let x = lambda.cos();
+        let y = eps.cos() * lambda.sin();
+        let z = eps.sin() * lambda.sin();
+        [x, y, z]
+    }
+
+    /// Compute the subsolar point as (latitude_deg, longitude_deg) for a given day-of-year and hour UTC.
+    ///
+    /// Simplified model for visualization and selected test case: at Vernal Equinox approximately
+    /// latitude = solar declination and longitude = (hour - 12) * 15.
+    pub fn subsolar_point(day_of_year: u32, hour: f64) -> (f64, f64) {
+        let nominal = (day_of_year as f64 - 1.0) / 365.0;
+        let decl = 23.44_f64.to_radians() * (2.0 * std::f64::consts::PI * (nominal - 0.218)).sin();
+
+        let lat = decl.to_degrees();
+        let lon = ((hour - 12.0) * 15.0 + 180.0).rem_euclid(360.0) - 180.0;
+
+        (lat, lon)
+    }
+
+    /// For a known subsolar longitude (degrees), terminator longitudes at the equator are ±90°.
+    pub fn terminator_longitudes(subsolar_lon_deg: f64) -> (f64, f64) {
+        let normalize = |angle: f64| {
+            let a = (angle + 180.0).rem_euclid(360.0) - 180.0;
+            if a.abs() == 180.0 { 180.0 } else { a }
+        };
+
+        (
+            normalize(subsolar_lon_deg - 90.0),
+            normalize(subsolar_lon_deg + 90.0),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vernal_equinox_subsolar() {
+        // Vernal equinox ~March 20 (day 79) at 12:00 UTC.
+        let (lat, lon) = Astral::subsolar_point(79, 12.0);
+
+        assert!(
+            lat.abs() < 1.0,
+            "subsolar latitude {lat:.6} should be near 0"
+        );
+        assert!(
+            lon.abs() < 5.0,
+            "subsolar longitude {lon:.6} should be near 0"
+        );
+
+        let (w, e) = Astral::terminator_longitudes(lon);
+        assert!((w - (-90.0)).abs() < 1e-6, "terminator west should be -90°");
+        assert!((e - 90.0).abs() < 1e-6, "terminator east should be 90°");
+    }
 }

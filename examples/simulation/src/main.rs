@@ -7,7 +7,7 @@ use gui::{
         ground_station::GroundStation,
         orbit::Orbit,
         satellite::Satellite,
-        simulation::{EARTH_RADIUS_KM, Simulation},
+        system::{EARTH_RADIUS_KM, System},
     },
     ui::{
         components::button::{ButtonVariant, icon_button},
@@ -29,8 +29,7 @@ use iced::{
 };
 use log::{debug, info};
 
-mod program;
-use crate::program::SelectedObject;
+use gui::simulation::{FrameMode, SelectedObject, Simulation};
 
 #[derive(Clone)]
 enum Message {
@@ -108,7 +107,7 @@ impl PaneState {
 }
 
 struct Textured {
-    program: program::Program,
+    program: Simulation,
     panes: pane_grid::State<PaneState>,
     focus: Option<pane_grid::Pane>,
     status_message: String,
@@ -170,7 +169,7 @@ impl Textured {
                 }
                 // Update camera follow
                 if let Some((orbit_idx, sat_idx)) = self.follow_satellite {
-                    if let Some(orbit) = self.program.simulation.orbits.get(orbit_idx) {
+                    if let Some(orbit) = self.program.system.orbits.get(orbit_idx) {
                         if let Some(sat) = orbit.satellites.get(sat_idx) {
                             let elapsed = self.program.elapsed_time();
                             let pos = orbit.position(elapsed, sat);
@@ -189,7 +188,7 @@ impl Textured {
                     let elapsed = self.program.elapsed_time();
                     if let Some(dist) = self
                         .program
-                        .simulation
+                        .system
                         .station_satellite_distance(si, oi, sati, elapsed)
                     {
                         self.kpi_distance_history.push((elapsed, dist));
@@ -215,12 +214,12 @@ impl Textured {
             Message::ToggleFrame => {
                 let current_phase = self.program.earth_rotation_phase();
                 match self.program.frame_mode {
-                    crate::program::FrameMode::Eci => {
+                    FrameMode::Eci => {
                         self.program.ecef_reference_earth_angle = current_phase;
-                        self.program.frame_mode = crate::program::FrameMode::Ecef;
+                        self.program.frame_mode = FrameMode::Ecef;
                     }
-                    crate::program::FrameMode::Ecef => {
-                        self.program.frame_mode = crate::program::FrameMode::Eci;
+                    FrameMode::Ecef => {
+                        self.program.frame_mode = FrameMode::Eci;
                     }
                 }
                 self.status_message = format!("Frame: {:?}", self.program.frame_mode);
@@ -256,11 +255,10 @@ impl Textured {
                 self.status_message = "Time reset".to_string();
             }
             Message::TogglePrecession => {
-                self.program.simulation.precession_enabled =
-                    !self.program.simulation.precession_enabled;
+                self.program.system.precession_enabled = !self.program.system.precession_enabled;
                 self.status_message = format!(
                     "Precession: {}",
-                    if self.program.simulation.precession_enabled {
+                    if self.program.system.precession_enabled {
                         "ON"
                     } else {
                         "OFF"
@@ -330,7 +328,7 @@ impl Textured {
                 let semi_major_axis = EARTH_RADIUS_KM + altitude;
                 let period_seconds = Orbit::circular_period_seconds(semi_major_axis);
                 let orbit_name = if self.orbit_name_input.trim().is_empty() {
-                    format!("Orbit {}", self.program.simulation.orbits.len() + 1)
+                    format!("Orbit {}", self.program.system.orbits.len() + 1)
                 } else {
                     self.orbit_name_input.trim().to_string()
                 };
@@ -347,21 +345,18 @@ impl Textured {
                             .build(),
                     );
                 });
-                self.satellite_orbit_selection = Some(self.program.simulation.orbits.len() - 1);
+                self.satellite_orbit_selection = Some(self.program.system.orbits.len() - 1);
                 self.error_message.clear();
                 self.status_message = format!(
                     "Created orbit '{}' at {:.0} km, total {}",
                     orbit_name,
                     altitude,
-                    self.program.simulation.orbits.len(),
+                    self.program.system.orbits.len(),
                 );
             }
             Message::CreateStation => {
                 let name = if self.station_name_input.trim().is_empty() {
-                    format!(
-                        "Station {}",
-                        self.program.simulation.ground_stations.len() + 1
-                    )
+                    format!("Station {}", self.program.system.ground_stations.len() + 1)
                 } else {
                     self.station_name_input.clone()
                 };
@@ -389,20 +384,20 @@ impl Textured {
                 self.status_message = format!("Created station '{}'", name);
             }
             Message::CreateOrbitSatellite => {
-                if self.program.simulation.orbits.is_empty() {
+                if self.program.system.orbits.is_empty() {
                     self.error_message = "No orbits available. Create an orbit first.".to_string();
                     return;
                 }
 
                 let orbit_index = self
                     .satellite_orbit_selection
-                    .filter(|idx| *idx < self.program.simulation.orbits.len());
+                    .filter(|idx| *idx < self.program.system.orbits.len());
 
                 if let Some(idx) = orbit_index {
                     let sat_name = if self.satellite_name_input.trim().is_empty() {
                         format!(
                             "Sat-{}",
-                            self.program.simulation.orbits[idx].satellites.len() + 1
+                            self.program.system.orbits[idx].satellites.len() + 1
                         )
                     } else {
                         self.satellite_name_input.clone()
@@ -422,7 +417,7 @@ impl Textured {
                 } else {
                     self.error_message = format!(
                         "Invalid orbit index. Must be 0..{}",
-                        self.program.simulation.orbits.len().saturating_sub(1)
+                        self.program.system.orbits.len().saturating_sub(1)
                     );
                 }
             }
@@ -472,7 +467,7 @@ impl Textured {
                 // We'll store the rect specs in the simulation.
                 // For now, let's add rectangle support to the simulation's stored rects.
                 self.program
-                    .simulation
+                    .system
                     .rect_surfaces
                     .push((min_lat, max_lat, min_lon, max_lon));
             }
@@ -484,7 +479,7 @@ impl Textured {
                     }
                 });
 
-                let orbit_count = self.program.simulation.orbits.len();
+                let orbit_count = self.program.system.orbits.len();
                 self.satellite_orbit_selection = match self.satellite_orbit_selection {
                     None => {
                         if orbit_count > 0 {
@@ -517,37 +512,37 @@ impl Textured {
             }
             // Manager: tune orbit
             Message::ToggleOrbitVisible(idx) => {
-                if let Some(orbit) = self.program.simulation.orbits.get_mut(idx) {
+                if let Some(orbit) = self.program.system.orbits.get_mut(idx) {
                     orbit.show_orbit = !orbit.show_orbit;
                 }
             }
             Message::ToggleOrbitFov(idx) => {
-                if let Some(orbit) = self.program.simulation.orbits.get_mut(idx) {
+                if let Some(orbit) = self.program.system.orbits.get_mut(idx) {
                     orbit.show_fov = !orbit.show_fov;
                 }
             }
             Message::ToggleOrbitFovFill(idx) => {
-                if let Some(orbit) = self.program.simulation.orbits.get_mut(idx) {
+                if let Some(orbit) = self.program.system.orbits.get_mut(idx) {
                     orbit.fill_fov = !orbit.fill_fov;
                 }
             }
             Message::OrbitFovAngleInput(idx, value) => {
                 if let Ok(angle) = value.parse::<f32>() {
-                    if let Some(orbit) = self.program.simulation.orbits.get_mut(idx) {
+                    if let Some(orbit) = self.program.system.orbits.get_mut(idx) {
                         orbit.fov_half_angle_deg = angle.clamp(0.1, 89.0);
                     }
                 }
             }
             Message::OrbitInclinationEdit(idx, value) => {
                 if let Ok(inc) = value.parse::<f32>() {
-                    if let Some(orbit) = self.program.simulation.orbits.get_mut(idx) {
+                    if let Some(orbit) = self.program.system.orbits.get_mut(idx) {
                         orbit.inclination_deg = inc;
                     }
                 }
             }
             Message::OrbitRaanEdit(idx, value) => {
                 if let Ok(raan) = value.parse::<f32>() {
-                    if let Some(orbit) = self.program.simulation.orbits.get_mut(idx) {
+                    if let Some(orbit) = self.program.system.orbits.get_mut(idx) {
                         orbit.raan_deg = raan;
                     }
                 }
@@ -555,13 +550,13 @@ impl Textured {
             // Manager: tune station
             Message::StationMinElevationInput(idx, value) => {
                 if let Ok(elev) = value.parse::<f32>() {
-                    if let Some(station) = self.program.simulation.ground_stations.get_mut(idx) {
+                    if let Some(station) = self.program.system.ground_stations.get_mut(idx) {
                         station.min_elevation_deg = elev.clamp(0.0, 90.0);
                     }
                 }
             }
             Message::ToggleStationCone(idx) => {
-                if let Some(station) = self.program.simulation.ground_stations.get_mut(idx) {
+                if let Some(station) = self.program.system.ground_stations.get_mut(idx) {
                     station.show_cone = !station.show_cone;
                 }
             }
@@ -570,7 +565,7 @@ impl Textured {
                 match target {
                     Some((o, s)) => {
                         // Initialize offset along radial direction from satellite
-                        if let Some(orbit) = self.program.simulation.orbits.get(o) {
+                        if let Some(orbit) = self.program.system.orbits.get(o) {
                             if let Some(sat) = orbit.satellites.get(s) {
                                 let elapsed = self.program.elapsed_time();
                                 let pos = orbit.position(elapsed, sat);
@@ -606,10 +601,10 @@ impl Textured {
         }
     }
 
-    fn modify_model(&mut self, mut f: impl FnMut(&mut Simulation)) {
-        let mut simulation = self.program.simulation.clone();
-        f(&mut simulation);
-        self.program.simulation = simulation;
+    fn modify_model(&mut self, mut f: impl FnMut(&mut System)) {
+        let mut system = self.program.system.clone();
+        f(&mut system);
+        self.program.system = system;
     }
 
     fn handle_object_selected(&mut self, object: SelectedObject, hit_distance: Option<f32>) {
@@ -825,7 +820,7 @@ impl Textured {
     }
 
     fn control_panel(&self) -> Element<'_, Message> {
-        let meta = &self.program.simulation;
+        let meta = &self.program.system;
 
         // --- Status bar texts ---
         let status_left = &self.status_message;
@@ -841,7 +836,7 @@ impl Textured {
         let sim_controls = sim_controls_panel(
             self.program.paused,
             self.program.time_scale,
-            self.program.simulation.precession_enabled,
+            self.program.system.precession_enabled,
             self.follow_satellite.is_some(),
             Message::TogglePause,
             Message::ResetTime,
@@ -914,7 +909,7 @@ impl Textured {
                 &self.satellite_name_input,
                 self.satellite_orbit_selection,
                 self.program
-                    .simulation
+                    .system
                     .orbits
                     .iter()
                     .enumerate()
@@ -954,7 +949,7 @@ impl Textured {
     }
 
     fn manager_panel(&self) -> Element<'_, Message> {
-        let meta = &self.program.simulation;
+        let meta = &self.program.system;
         let mut items: Vec<Element<'_, Message>> = Vec::new();
 
         // Orbits
@@ -1033,7 +1028,7 @@ impl Textured {
     }
 
     fn kpi_view(&self) -> Element<'_, Message> {
-        let meta = &self.program.simulation;
+        let meta = &self.program.system;
 
         // Compute current distance and sparkline
         let current_distance = if let (Ok(si), Ok(oi), Ok(sati)) = (
@@ -1043,7 +1038,7 @@ impl Textured {
         ) {
             let elapsed = self.program.elapsed_time();
             self.program
-                .simulation
+                .system
                 .station_satellite_distance(si, oi, sati, elapsed)
         } else {
             None
@@ -1120,7 +1115,7 @@ impl Default for Textured {
         let orbit1_a = earth_radius + 500.0;
         let orbit2_a = earth_radius + 800.0;
 
-        let mut simulation = Simulation::builder()
+        let mut system = System::builder()
             .add_orbit(
                 Orbit::builder(orbit1_a, Orbit::circular_period_seconds(orbit1_a))
                     .name("Orbit 1")
@@ -1144,7 +1139,7 @@ impl Default for Textured {
             )
             .add_ground_station(GroundStation::new("Paris Station", 48.8566, 2.3522))
             .build(Utc::now());
-        simulation.simulation_speed = 120;
+        system.simulation_speed = 120;
 
         let camera_distance = earth_radius + 10_000.0;
         let camera = Camera::new(
@@ -1163,11 +1158,11 @@ impl Default for Textured {
         let _ = panes.split(pane_grid::Axis::Vertical, root_pane, PaneState::new(1));
 
         Self {
-            program: program::Program {
-                simulation,
+            program: Simulation {
+                system,
                 camera,
                 satellite_mode: SatelliteRenderMode::Dot,
-                frame_mode: crate::program::FrameMode::Eci,
+                frame_mode: FrameMode::Eci,
                 ecef_reference_earth_angle: 0.0,
                 paused: false,
                 time_scale: 120.0,
@@ -1212,9 +1207,9 @@ impl Default for Textured {
 }
 
 fn main() -> iced::Result {
-    // Enable debug logs only for this example crate ("textured").
-    // Override with RUST_LOG when needed, e.g. RUST_LOG=info or RUST_LOG=textured=debug
-    env_logger::Builder::from_env(Env::default().default_filter_or("textured=debug")).init();
+    // Enable debug logs only for this example crate ("simulation").
+    // Override with RUST_LOG when needed, e.g. RUST_LOG=info or RUST_LOG=simulation=debug
+    env_logger::Builder::from_env(Env::default().default_filter_or("simulation=debug")).init();
 
     debug!("logging initialized for module: {}", module_path!());
 

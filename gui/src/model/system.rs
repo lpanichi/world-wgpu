@@ -11,7 +11,7 @@ use nalgebra::{Matrix4, Rotation3, Unit, Vector3};
 pub const EARTH_RADIUS_KM: f32 = 6371.0;
 
 #[derive(Debug, Clone)]
-pub struct Simulation {
+pub struct System {
     pub orbits: Vec<Orbit>,
     pub ground_stations: Vec<GroundStation>,
     pub planet_triangles: Vec<TextureVertex>,
@@ -25,7 +25,7 @@ pub struct Simulation {
     pub rect_surfaces: Vec<(f32, f32, f32, f32)>,
 }
 
-impl Simulation {
+impl System {
     pub fn builder() -> SimulationBuilder {
         let sphere = build_sphere();
         let planet_triangles = into_textured_vertex(sphere, EARTH_RADIUS_KM);
@@ -414,6 +414,27 @@ mod tests {
     }
 
     #[test]
+    fn system_positions_all_orbits() {
+        let sim = System::builder()
+            .add_orbit(
+                Orbit::builder(6.0, 20.0)
+                    .add_satellite(Satellite::builder("A").phase_offset(0.0).build())
+                    .build(),
+            )
+            .add_orbit(
+                Orbit::builder(8.0, 30.0)
+                    .add_satellite(Satellite::builder("B").phase_offset(0.0).build())
+                    .build(),
+            )
+            .build(Utc::now());
+
+        let positions = sim.satellite_positions(0.0);
+        assert_eq!(positions.len(), 2);
+        assert!(approx_eq(positions[0][0], 6.0));
+        assert!(approx_eq(positions[1][0], 8.0));
+    }
+
+    #[test]
     fn orbit_position_quarter_period() {
         let orbit = Orbit::builder(6.0, 20.0).build();
         let sat = Satellite::builder("test").phase_offset(0.0).build();
@@ -425,7 +446,7 @@ mod tests {
 
     #[test]
     fn satellite_positions_all_orbits() {
-        let sim = Simulation::builder()
+        let sim = System::builder()
             .add_orbit(
                 Orbit::builder(6.0, 20.0)
                     .add_satellite(Satellite::builder("A").phase_offset(0.0).build())
@@ -462,8 +483,8 @@ impl SimulationBuilder {
         self
     }
 
-    pub fn build(self, simulation_time: DateTime<Utc>) -> Simulation {
-        Simulation {
+    pub fn build(self, simulation_time: DateTime<Utc>) -> System {
+        System {
             orbits: self.orbits,
             ground_stations: self.ground_stations,
             planet_triangles: self.planet_triangles,

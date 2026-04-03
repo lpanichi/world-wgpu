@@ -1,7 +1,7 @@
 use crate::gpu::pipelines::planet::camera::Camera;
 use crate::gpu::pipelines::planet::instance_mesh::cube_vertices;
 use crate::gpu::pipelines::planet::vertex::PositionVertex;
-use crate::model::simulation::Simulation;
+use crate::model::system::System;
 use iced::wgpu::{
     self, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,
     BufferDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderStages, TextureFormat,
@@ -233,7 +233,7 @@ impl StationPipeline {
         &mut self,
         queue: &wgpu::Queue,
         camera: &Camera,
-        model: &Simulation,
+        model: &System,
         sun_dir: Vector3<f32>,
         earth_rotation_angle: f32,
     ) {

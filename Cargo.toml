@@ -83,8 +83,12 @@ rand = "0.9.2"
 
 
 [[example]]
-name = "textured"
-path = "examples/textured/src/main.rs"
+name = "simulation"
+path = "examples/simulation/src/main.rs"
+
+[[example]]
+name = "vernal_equinox"
+path = "examples/vernal_equinox/src/main.rs"
 
 [workspace.lints.clippy]
 large-enum-variant = "allow"

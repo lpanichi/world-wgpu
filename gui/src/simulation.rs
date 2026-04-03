@@ -1,8 +1,8 @@
-use chrono::Utc;
-use gui::{
+use crate::{
     gpu::pipelines::planet::{camera::Camera, pipeline::Pipeline, satellite::SatelliteRenderMode},
-    model::simulation::Simulation,
+    model::system::{EARTH_RADIUS_KM, System as CoreSystem},
 };
+use chrono::Utc;
 use iced::{Rectangle, mouse, wgpu, widget::shader};
 use log::{debug, info};
 use nalgebra::{Isometry3, Point3, Point4, Rotation3, Translation3, Vector3};
@@ -21,8 +21,9 @@ pub enum FrameMode {
     Ecef,
 }
 
-pub struct Program {
-    pub simulation: Simulation,
+#[derive(Debug)]
+pub struct Simulation {
+    pub system: CoreSystem,
     pub camera: Camera,
     pub satellite_mode: SatelliteRenderMode,
     pub frame_mode: FrameMode,
@@ -32,24 +33,24 @@ pub struct Program {
     pub pick_radius_scale: f32,
 }
 
-impl Program {
+impl Simulation {
     pub fn earth_rotation_phase(&self) -> f32 {
-        self.simulation.earth_rotation() as f32
+        self.system.earth_rotation() as f32
     }
 
     pub fn elapsed_time(&self) -> f32 {
-        self.simulation.elapsed_seconds()
+        self.system.elapsed_seconds()
     }
 
     pub fn set_time_scale(&mut self, new_scale: f32) {
         let clamped = new_scale.clamp(0.1, 50_000.0);
-        self.simulation.simulation_speed = clamped.max(1.0).round() as i32;
+        self.system.simulation_speed = clamped.max(1.0).round() as i32;
         self.time_scale = clamped;
     }
 
     pub fn toggle_pause(&mut self) {
         if self.paused {
-            self.simulation.last_tick_time = Utc::now();
+            self.system.last_tick_time = Utc::now();
             self.paused = false;
         } else {
             self.paused = true;
@@ -58,16 +59,16 @@ impl Program {
 
     pub fn reset_time(&mut self) {
         let now = Utc::now();
-        self.simulation.simulation_time = now;
-        self.simulation.start_time = now;
-        self.simulation.last_tick_time = now;
+        self.system.simulation_time = now;
+        self.system.start_time = now;
+        self.system.last_tick_time = now;
         self.ecef_reference_earth_angle = 0.0;
         self.paused = false;
     }
 
     pub fn tick(&mut self) {
         let phase_before = self.earth_rotation_phase();
-        self.simulation.tick();
+        self.system.tick();
         let phase_after = self.earth_rotation_phase();
 
         if self.frame_mode == FrameMode::Ecef {
@@ -214,26 +215,21 @@ impl Program {
             }
         };
 
-        consider_object(
-            SelectedObject::Earth,
-            Point3::origin(),
-            gui::model::simulation::EARTH_RADIUS_KM,
-        );
+        consider_object(SelectedObject::Earth, Point3::origin(), EARTH_RADIUS_KM);
 
         let elapsed = self.elapsed_time();
-        let earth_rotation_angle = self.simulation.earth_rotation() as f32;
+        let earth_rotation_angle = self.system.earth_rotation() as f32;
         // The WGSL station_shader uses column-major earth_rotation(θ) which evaluates to
         // x'=cθ·x+sθ·y, y'=-sθ·x+cθ·y — that is Rz(-θ). Negate here to match.
         let ecef_to_eci = Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_rotation_angle);
 
-        let dot_radius = gui::model::simulation::EARTH_RADIUS_KM
-            * gui::model::simulation::Simulation::SATELLITE_SCALE_FACTOR;
+        let dot_radius = EARTH_RADIUS_KM * CoreSystem::SATELLITE_SCALE_FACTOR;
         let satellite_radius = match self.satellite_mode {
             SatelliteRenderMode::Dot => dot_radius,
             SatelliteRenderMode::Cube => dot_radius * 0.25,
         };
 
-        for (orbit_index, orbit) in self.simulation.orbits.iter().enumerate() {
+        for (orbit_index, orbit) in self.system.orbits.iter().enumerate() {
             for sat in orbit.satellites.iter() {
                 let pos_eci = orbit.position(elapsed, sat);
                 let center = Point3::new(pos_eci[0], pos_eci[1], pos_eci[2]);
@@ -245,14 +241,14 @@ impl Program {
             }
         }
 
-        for station in &self.simulation.ground_stations {
-            let cart = station.cartesian();
+        for station in &self.system.ground_stations {
+            let cart: [f32; 3] = station.cartesian();
             let center_ecef = Vector3::new(cart[0], cart[1], cart[2]);
             let center_eci = ecef_to_eci * center_ecef;
             let center = Point3::new(center_eci.x, center_eci.y, center_eci.z);
 
             // Model cube vertices are in [-0.1, 0.1], so bounding-sphere radius scales by 0.1*sqrt(3).
-            let station_radius = (0.173_205_08 * station.cube_size).max(25.0);
+            let station_radius = (0.173_205_08_f32 * station.cube_size).max(25.0_f32);
             consider_object(
                 SelectedObject::GroundStation(station.name.clone()),
                 center,
@@ -268,7 +264,7 @@ impl Program {
     }
 }
 
-impl<Message> shader::Program<Message> for Program {
+impl<Message> shader::Program<Message> for Simulation {
     type State = String;
 
     type Primitive = Primitive;
@@ -287,7 +283,7 @@ impl<Message> shader::Program<Message> for Program {
         let camera = self.frame_adjusted_camera(bounds.width, bounds.height, earth_phase);
 
         Primitive {
-            simulation: self.simulation.clone(),
+            system: self.system.clone(),
             camera,
             elapsed,
             earth_rotation_angle: earth_phase,
@@ -298,7 +294,7 @@ impl<Message> shader::Program<Message> for Program {
 
 #[derive(Debug)]
 pub struct Primitive {
-    simulation: Simulation,
+    system: CoreSystem,
     camera: Camera,
     elapsed: f32,
     earth_rotation_angle: f32,
@@ -321,7 +317,7 @@ impl shader::Primitive for Primitive {
             queue,
             bounds,
             viewport,
-            &self.simulation,
+            &self.system,
             &self.camera,
             self.elapsed,
             self.earth_rotation_angle,

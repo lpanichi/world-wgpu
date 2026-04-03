@@ -24,7 +24,7 @@ It includes:
 Run example:
 
 ```bash
-cargo run --example textured
+cargo run --example simulation
 ```
 
 This project primarily works with the `smol` executor for timing subscriptions.

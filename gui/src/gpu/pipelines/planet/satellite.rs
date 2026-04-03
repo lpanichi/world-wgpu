@@ -1,7 +1,7 @@
 use crate::gpu::pipelines::planet::camera::Camera;
 use crate::gpu::pipelines::planet::instance_mesh::{cube_vertices, dot_vertices};
 use crate::gpu::pipelines::planet::vertex::PositionVertex;
-use crate::model::simulation::{EARTH_RADIUS_KM, Simulation};
+use crate::model::system::{EARTH_RADIUS_KM, System};
 use iced::wgpu::{
     self, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,
     BufferDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderStages, TextureFormat,
@@ -232,7 +232,7 @@ impl SatellitePipeline {
         &mut self,
         queue: &wgpu::Queue,
         camera: &Camera,
-        model: &Simulation,
+        model: &System,
         elapsed: f32,
         sun_dir: Vector3<f32>,
     ) {
@@ -244,7 +244,7 @@ impl SatellitePipeline {
         uniforms.view_proj = camera.build_view_projection_matrix().into();
 
         uniforms.sun_direction = [sun_dir.x, sun_dir.y, sun_dir.z, 0.0];
-        uniforms.satellite_scale = EARTH_RADIUS_KM * Simulation::SATELLITE_SCALE_FACTOR;
+        uniforms.satellite_scale = EARTH_RADIUS_KM * System::SATELLITE_SCALE_FACTOR;
 
         let camera_forward = (camera.target - camera.eye).normalize();
         let camera_right = camera_forward.cross(&camera.up.into_inner()).normalize();

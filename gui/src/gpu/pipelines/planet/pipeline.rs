@@ -16,8 +16,9 @@ use crate::gpu::pipelines::planet::{
 use crate::{
     gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode},
     gpu::pipelines::planet::station::StationPipeline,
-    model::simulation::Simulation,
+    model::system::System,
 };
+
 use nalgebra::Vector3;
 
 const ORBIT_SAMPLES: usize = 128;
@@ -276,7 +277,7 @@ impl Pipeline {
         queue: &wgpu::Queue,
         _bounds: &iced::Rectangle,
         viewport: &shader::Viewport,
-        model: &Simulation,
+        model: &System,
         camera: &Camera,
         elapsed: f32,
         earth_rotation_angle: f32,
