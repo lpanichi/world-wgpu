@@ -14,7 +14,7 @@ use gui::{
             self, BuilderForm, SidebarTab, error_banner, kpi_panel, orbit_builder_panel,
             orbit_manager_item, rect_surface_builder_panel, satellite_builder_panel,
             satellite_manager_item, sim_controls_panel, station_builder_panel,
-            station_manager_item, status_bar, tab_bar, workbench_layout,
+            station_manager_item, status_bar, tab_bar,
         },
         theme::{colors, spacing, typography},
     },
@@ -25,7 +25,7 @@ use iced::{
     Theme,
     keyboard::{self, Key},
     time::{self, milliseconds},
-    widget::{column, container, shader, text},
+    widget::{column, container, pane_grid, shader, text},
 };
 use log::{debug, info};
 
@@ -37,6 +37,9 @@ enum Message {
     Event(iced::event::Event),
     Tick,
     OnObjectSelected(SelectedObject, Option<f32>),
+    PaneClicked(pane_grid::Pane),
+    PaneDragged(pane_grid::DragEvent),
+    PaneResized(pane_grid::ResizeEvent),
     ToggleFrame,
     SwitchMode(SidebarTab),
     ShowBuilderPane(BuilderForm),
@@ -92,8 +95,21 @@ enum Message {
     KpiSatIndexInput(String),
 }
 
+#[derive(Clone, Copy, Debug)]
+struct PaneState {
+    id: usize,
+}
+
+impl PaneState {
+    fn new(id: usize) -> Self {
+        Self { id }
+    }
+}
+
 struct Textured {
     program: Simulation,
+    panes: pane_grid::State<PaneState>,
+    focus: Option<pane_grid::Pane>,
     status_message: String,
     error_message: String,
     cursor_position: Option<(f32, f32)>,
@@ -185,6 +201,14 @@ impl Textured {
             }
             Message::OnObjectSelected(object, hit_distance) => {
                 self.handle_object_selected(object, hit_distance)
+            }
+            Message::PaneClicked(pane) => self.focus = Some(pane),
+            Message::PaneDragged(pane_grid::DragEvent::Dropped { pane, target }) => {
+                self.panes.drop(pane, target);
+            }
+            Message::PaneDragged(_) => {}
+            Message::PaneResized(event) => {
+                self.panes.resize(event.split, event.ratio);
             }
 
             Message::ToggleFrame => {
@@ -780,17 +804,19 @@ impl Textured {
             return None;
         }
 
-        // workbench_layout: status_bar on top, sidebar on left, viewport fills rest.
-        let x = spacing::SIDEBAR_WIDTH;
-        let y = spacing::STATUS_BAR_HEIGHT;
-        let w = total_size.0 - spacing::SIDEBAR_WIDTH;
-        let h = total_size.1 - spacing::STATUS_BAR_HEIGHT;
+        let bounds = iced::Size::new(total_size.0, total_size.1);
+        let regions = self.panes.layout().pane_regions(4.0, 0.0, bounds);
 
-        if w <= 0.0 || h <= 0.0 {
-            return None;
-        }
+        let shader_pane =
+            self.panes.iter().find_map(
+                |(pane, state)| {
+                    if state.id == 0 { Some(*pane) } else { None }
+                },
+            )?;
 
-        Some((x, y, w, h))
+        let region = regions.get(&shader_pane)?;
+
+        Some((region.x, region.y, region.width, region.height))
     }
 
     fn build_status_bar(&self) -> Element<'_, Message> {
@@ -855,7 +881,7 @@ impl Textured {
         .height(iced::Length::Fill);
 
         container(scrollable_content)
-            .width(iced::Length::Fixed(spacing::SIDEBAR_WIDTH))
+            .width(iced::Length::Fill)
             .height(iced::Length::Fill)
             .style(|_theme| container::Style {
                 background: Some(iced::Background::Color(colors::BG_ELEVATED)),
@@ -1067,11 +1093,26 @@ impl Textured {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        workbench_layout(
-            self.build_status_bar(),
-            self.build_sidebar(),
-            shader(&self.program).width(Fill).height(Fill).into(),
-        )
+        let pane_grid = pane_grid::PaneGrid::new(&self.panes, |_, pane_state, _| {
+            let content: Element<'_, Message> = match pane_state.id {
+                0 => shader(&self.program).width(Fill).height(Fill).into(),
+                1 => column![self.build_status_bar(), self.build_sidebar()]
+                    .spacing(0)
+                    .height(Fill)
+                    .into(),
+                _ => text("Unknown pane").into(),
+            };
+
+            pane_grid::Content::new(content)
+        })
+        .width(Fill)
+        .height(Fill)
+        .spacing(spacing::XXXS)
+        .on_click(Message::PaneClicked)
+        .on_drag(Message::PaneDragged)
+        .on_resize(4, Message::PaneResized);
+
+        container(pane_grid).padding(spacing::XXXS).into()
     }
 }
 
@@ -1120,6 +1161,9 @@ impl Default for Textured {
             200.,
         );
 
+        let (mut panes, root_pane) = pane_grid::State::new(PaneState::new(0));
+        let _ = panes.split(pane_grid::Axis::Vertical, root_pane, PaneState::new(1));
+
         Self {
             program: Simulation {
                 system,
@@ -1132,6 +1176,8 @@ impl Default for Textured {
                 pick_radius_scale: 2.0,
                 show_clouds: true,
             },
+            panes,
+            focus: Some(root_pane),
             status_message: "Ready".to_string(),
             error_message: String::new(),
             panel_mode: SidebarTab::Builder,
