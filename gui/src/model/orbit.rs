@@ -97,7 +97,7 @@ impl Orbit {
         [vec.x, vec.y, vec.z]
     }
 
-    pub fn sampled_points(&self, steps: usize) -> Vec<[f32; 3]> {
+    pub fn sampled_points(&self, steps: usize, elapsed: f32) -> Vec<[f32; 3]> {
         (0..steps)
             .map(|i| {
                 let t = i as f32 / steps as f32;
@@ -106,7 +106,7 @@ impl Orbit {
                     name: "orbit_point".to_string(),
                     phase_offset_rad: angle,
                 };
-                self.position(0.0, &sat)
+                self.position(elapsed, &sat)
             })
             .collect()
     }

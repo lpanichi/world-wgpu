@@ -12,8 +12,8 @@
 /// through the Greenwich meridian (0° longitude).
 use chrono::{TimeZone, Utc};
 use gui::gpu::pipelines::planet::{camera::Camera, satellite::SatelliteRenderMode};
-use gui::model::shapes::lat_lon_to_ecef;
 use gui::model::ground_station::GroundStation;
+use gui::model::shapes::lat_lon_to_ecef;
 use gui::model::system::System;
 use gui::simulation::{FrameMode, Simulation as ProgramSimulation};
 use iced::keyboard::{self, Key, key::Named};
@@ -102,7 +102,7 @@ impl EarthTextureSimulation {
             paused: true,
             time_scale: 0.0,
             pick_radius_scale: 1.0,
-            show_clouds: true,
+            show_clouds: false,
         };
 
         let validation_info = format!(
@@ -150,12 +150,24 @@ fn update(sim: &mut EarthTextureSimulation, message: Message) {
             match event {
                 iced::event::Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => {
                     match key {
-                        Key::Named(Named::ArrowLeft) => sim.program.camera.rotate_around_up(-rotate_angle),
-                        Key::Named(Named::ArrowRight) => sim.program.camera.rotate_around_up(rotate_angle),
-                        Key::Named(Named::ArrowUp) => sim.program.camera.rotate_vertically(-rotate_angle),
-                        Key::Named(Named::ArrowDown) => sim.program.camera.rotate_vertically(rotate_angle),
-                        Key::Character(ch) if ch == "+" || ch == "=" => sim.program.camera.dolly(-zoom_amount),
-                        Key::Character(ch) if ch == "-" || ch == "_" => sim.program.camera.dolly(zoom_amount),
+                        Key::Named(Named::ArrowLeft) => {
+                            sim.program.camera.rotate_around_up(-rotate_angle)
+                        }
+                        Key::Named(Named::ArrowRight) => {
+                            sim.program.camera.rotate_around_up(rotate_angle)
+                        }
+                        Key::Named(Named::ArrowUp) => {
+                            sim.program.camera.rotate_vertically(-rotate_angle)
+                        }
+                        Key::Named(Named::ArrowDown) => {
+                            sim.program.camera.rotate_vertically(rotate_angle)
+                        }
+                        Key::Character(ch) if ch == "+" || ch == "=" => {
+                            sim.program.camera.dolly(-zoom_amount)
+                        }
+                        Key::Character(ch) if ch == "-" || ch == "_" => {
+                            sim.program.camera.dolly(zoom_amount)
+                        }
                         _ => {}
                     }
                 }
@@ -172,11 +184,15 @@ fn update(sim: &mut EarthTextureSimulation, message: Message) {
                     }
                     sim.cursor_position = Some((x, y));
                 }
-                iced::event::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Right)) => {
+                iced::event::Event::Mouse(iced::mouse::Event::ButtonPressed(
+                    iced::mouse::Button::Right,
+                )) => {
                     sim.right_button_down = true;
                     sim.drag_start = sim.cursor_position;
                 }
-                iced::event::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Right)) => {
+                iced::event::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                    iced::mouse::Button::Right,
+                )) => {
                     sim.right_button_down = false;
                     sim.drag_start = None;
                 }

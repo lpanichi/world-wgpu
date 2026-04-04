@@ -85,7 +85,11 @@ impl System {
         &self.planet_triangles
     }
 
-    pub fn orbit_line_points(&self, steps_per_orbit: usize) -> (Vec<[f32; 3]>, Vec<(u32, u32)>) {
+    pub fn orbit_line_points(
+        &self,
+        steps_per_orbit: usize,
+        elapsed: f32,
+    ) -> (Vec<[f32; 3]>, Vec<(u32, u32)>) {
         let mut points = Vec::new();
         let mut ranges = Vec::new();
         for orbit in &self.orbits {
@@ -93,7 +97,7 @@ impl System {
                 continue;
             }
             let start = points.len() as u32;
-            let mut sampled = orbit.sampled_points(steps_per_orbit);
+            let mut sampled = orbit.sampled_points(steps_per_orbit, elapsed);
             if !sampled.is_empty() {
                 // Close the loop by repeating first point at end of line strip.
                 sampled.push(sampled[0]);
@@ -313,16 +317,13 @@ impl System {
             ranges.push((start, end - start));
         }
 
-        // Shapes (lines, points, frames, orbital elements)
-        let earth_angle = self.earth_rotation() as f32;
-        let (shape_pts, shape_ranges) = self.shapes.line_points(earth_angle);
-        let offset = points.len() as u32;
-        points.extend(shape_pts);
-        for (s, l) in shape_ranges {
-            ranges.push((s + offset, l));
-        }
-
         (points, ranges)
+    }
+
+    /// Returns colored shape vertices `[x, y, z, r, g, b]` and ranges.
+    pub fn colored_shape_points(&self) -> (Vec<[f32; 6]>, Vec<(u32, u32)>) {
+        let earth_angle = self.earth_rotation() as f32;
+        self.shapes.line_points(earth_angle)
     }
 
     /// Compute distance in km between a ground station (by index) and a satellite.

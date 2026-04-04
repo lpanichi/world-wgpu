@@ -22,6 +22,8 @@ use crate::{
 use nalgebra::Vector3;
 
 const ORBIT_SAMPLES: usize = 128;
+const ORBIT_COLOR: [f32; 3] = [1.0, 0.7, 0.2];
+const FEATURE_COLOR: [f32; 3] = [1.0, 0.7, 0.2];
 
 pub struct Pipeline {
     vertices: Buffer,
@@ -29,11 +31,8 @@ pub struct Pipeline {
     uniforms: Buffer,
     uniforms_bind_group: BindGroup,
     pipeline: RenderPipeline,
-    star_pipeline: RenderPipeline,
     star_catalog: StarCatalogPipeline,
     trajectory: TrajectoryPipeline,
-    feature_buffer: Option<Buffer>,
-    feature_ranges: Vec<(u32, u32)>,
     fov_fill_buffer: Option<Buffer>,
     fov_fill_vertex_count: u32,
     satellite: SatellitePipeline,
@@ -185,59 +184,6 @@ impl Pipeline {
             cache: None,
         });
 
-        let star_shader =
-            device.create_shader_module(wgpu::include_wgsl!("../../shaders/star_shader.wgsl"));
-
-        let star_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Star Pipeline Layout"),
-            bind_group_layouts: &[],
-            ..Default::default()
-        });
-
-        let star_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("Planet Star Pipeline"),
-            layout: Some(&star_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &star_shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Always,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &star_shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview: None,
-            cache: None,
-        });
-
         let trajectory = TrajectoryPipeline::new(device, format, &uniform_bind_group_layout);
         let star_catalog = StarCatalogPipeline::new(device, queue, format);
 
@@ -253,11 +199,8 @@ impl Pipeline {
             uniforms,
             uniforms_bind_group,
             pipeline,
-            star_pipeline,
             star_catalog,
             trajectory,
-            feature_buffer: None,
-            feature_ranges: Vec::new(),
             fov_fill_buffer: None,
             fov_fill_vertex_count: 0,
             satellite,
@@ -319,26 +262,57 @@ impl Pipeline {
         let (day_of_year, hour) = model.day_hour();
         let earth_spin = earth_rotation_angle;
 
-        // Fill orbit trajectory points and ranges.
-        let (orbit_points, orbit_ranges) = model.orbit_line_points(ORBIT_SAMPLES);
-        self.trajectory
-            .set_data(device, queue, orbit_points, orbit_ranges);
-
-        // Features (station beams, visibility cones, satellite FOV, squares)
+        // Fill orbit trajectory points and ranges — convert to colored vertices.
+        let (orbit_points, orbit_ranges) = model.orbit_line_points(ORBIT_SAMPLES, elapsed);
         let (feature_points, feature_ranges) = model.features_line_points(elapsed);
-        self.feature_ranges = feature_ranges;
-        if !feature_points.is_empty() {
-            let feature_size = bytemuck::cast_slice::<[f32; 3], u8>(&feature_points).len() as u64;
-            let buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Feature Line Buffer"),
-                size: feature_size,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&feature_points));
-            self.feature_buffer = Some(buffer);
-        } else {
-            self.feature_buffer = None;
+
+        // Merge orbits + features into a single colored buffer.
+        {
+            use crate::gpu::pipelines::planet::vertex::ColoredVertex;
+            let mut all_verts: Vec<ColoredVertex> = Vec::new();
+            let mut all_ranges: Vec<(u32, u32)> = Vec::new();
+
+            // Orbits
+            let offset = all_verts.len() as u32;
+            for p in &orbit_points {
+                all_verts.push(ColoredVertex {
+                    position: *p,
+                    color: ORBIT_COLOR,
+                });
+            }
+            for (start, len) in &orbit_ranges {
+                all_ranges.push((start + offset, *len));
+            }
+
+            // Features (FOV circles, rectangles)
+            let offset = all_verts.len() as u32;
+            for p in &feature_points {
+                all_verts.push(ColoredVertex {
+                    position: *p,
+                    color: FEATURE_COLOR,
+                });
+            }
+            for (start, len) in &feature_ranges {
+                all_ranges.push((start + offset, *len));
+            }
+
+            self.trajectory
+                .set_data(device, queue, all_verts, all_ranges);
+        }
+
+        // Colored shapes (frames, orbital elements, labels, markers)
+        let (colored_verts, colored_ranges) = model.colored_shape_points();
+        {
+            use crate::gpu::pipelines::planet::vertex::ColoredVertex;
+            let cv: Vec<ColoredVertex> = colored_verts
+                .iter()
+                .map(|v| ColoredVertex {
+                    position: [v[0], v[1], v[2]],
+                    color: [v[3], v[4], v[5]],
+                })
+                .collect();
+            self.trajectory
+                .set_shapes_data(device, queue, cv, colored_ranges);
         }
 
         // Sun direction as directional light. Use astronomical position relative to Earth.
@@ -380,19 +354,27 @@ impl Pipeline {
         // Atmosphere
         self.atmosphere.prepare(queue, camera, sun_dir, earth_spin);
 
-        // Filled FOV triangles
+        // Filled FOV triangles — convert to colored vertices
         let fov_tris = model.satellite_fov_filled_triangles(elapsed);
         if !fov_tris.is_empty() {
-            let size = bytemuck::cast_slice::<[f32; 3], u8>(&fov_tris).len() as u64;
+            use crate::gpu::pipelines::planet::vertex::ColoredVertex;
+            let colored_fov: Vec<ColoredVertex> = fov_tris
+                .iter()
+                .map(|p| ColoredVertex {
+                    position: *p,
+                    color: FEATURE_COLOR,
+                })
+                .collect();
+            let size = bytemuck::cast_slice::<ColoredVertex, u8>(&colored_fov).len() as u64;
             let buffer = device.create_buffer(&BufferDescriptor {
                 label: Some("FOV Fill Buffer"),
                 size,
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&fov_tris));
+            queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&colored_fov));
             self.fov_fill_buffer = Some(buffer);
-            self.fov_fill_vertex_count = fov_tris.len() as u32;
+            self.fov_fill_vertex_count = colored_fov.len() as u32;
         } else {
             self.fov_fill_buffer = None;
             self.fov_fill_vertex_count = 0;
@@ -421,7 +403,12 @@ impl Pipeline {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.0009,
+                        g: 0.0012,
+                        b: 0.0034,
+                        a: 1.0,
+                    }),
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -447,9 +434,6 @@ impl Pipeline {
             1.0,
         );
 
-        render_pass.set_pipeline(&self.star_pipeline);
-        render_pass.draw(0..3, 0..1);
-
         self.star_catalog.render(&mut render_pass);
 
         render_pass.set_pipeline(&self.pipeline);
@@ -459,17 +443,13 @@ impl Pipeline {
         render_pass.set_vertex_buffer(0, self.vertices.slice(..));
         render_pass.draw(0..self.planet_vertices_count, 0..1);
 
+        // Orbits + features (colored)
         self.trajectory
             .render(&mut render_pass, &self.uniforms_bind_group);
 
-        if let Some(feature_buffer) = &self.feature_buffer {
-            self.trajectory.render_with_buffer(
-                &mut render_pass,
-                &self.uniforms_bind_group,
-                feature_buffer,
-                &self.feature_ranges,
-            );
-        }
+        // Colored shapes (frames, orbital elements, labels)
+        self.trajectory
+            .render_shapes(&mut render_pass, &self.uniforms_bind_group);
 
         // Clouds rendered after planet, before other objects
         if self.show_clouds {
@@ -480,7 +460,7 @@ impl Pipeline {
         self.station.render(&mut render_pass);
         self.moon.render(&mut render_pass);
 
-        // Render filled FOV surfaces using the trajectory pipeline (reuses position-only vertex layout)
+        // Render filled FOV surfaces using the colored line pipeline
         if let Some(fov_buffer) = &self.fov_fill_buffer {
             self.trajectory.render_with_buffer(
                 &mut render_pass,
