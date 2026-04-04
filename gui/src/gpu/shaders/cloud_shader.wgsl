@@ -48,51 +48,41 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     return out;
 }
 
-// Gradient noise — produces smooth, non-blocky patterns unlike value noise.
-// Random gradient vectors at each lattice point via hash.
-fn hash3(p: vec3<f32>) -> vec3<f32> {
-    let q = vec3<f32>(
-        dot(p, vec3<f32>(127.1, 311.7, 74.7)),
-        dot(p, vec3<f32>(269.5, 183.3, 246.1)),
-        dot(p, vec3<f32>(113.5, 271.9, 124.6)),
-    );
-    return fract(sin(q) * 43758.5453123) * 2.0 - 1.0;
+// Hash-based pseudo-random for noise
+fn hash(p: vec3<f32>) -> f32 {
+    var p3 = fract(p * 0.1031);
+    p3 = p3 + dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
 }
 
-fn gradient_noise(p: vec3<f32>) -> f32 {
+fn noise3d(p: vec3<f32>) -> f32 {
     let i = floor(p);
     let f = fract(p);
-    // Quintic Hermite interpolation — C2-continuous, avoids grid-aligned artifacts
-    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let u = f * f * (3.0 - 2.0 * f);
 
     return mix(
         mix(
-            mix(dot(hash3(i + vec3<f32>(0.0, 0.0, 0.0)), f - vec3<f32>(0.0, 0.0, 0.0)),
-                dot(hash3(i + vec3<f32>(1.0, 0.0, 0.0)), f - vec3<f32>(1.0, 0.0, 0.0)), u.x),
-            mix(dot(hash3(i + vec3<f32>(0.0, 1.0, 0.0)), f - vec3<f32>(0.0, 1.0, 0.0)),
-                dot(hash3(i + vec3<f32>(1.0, 1.0, 0.0)), f - vec3<f32>(1.0, 1.0, 0.0)), u.x),
+            mix(hash(i + vec3<f32>(0.0, 0.0, 0.0)), hash(i + vec3<f32>(1.0, 0.0, 0.0)), u.x),
+            mix(hash(i + vec3<f32>(0.0, 1.0, 0.0)), hash(i + vec3<f32>(1.0, 1.0, 0.0)), u.x),
             u.y,
         ),
         mix(
-            mix(dot(hash3(i + vec3<f32>(0.0, 0.0, 1.0)), f - vec3<f32>(0.0, 0.0, 1.0)),
-                dot(hash3(i + vec3<f32>(1.0, 0.0, 1.0)), f - vec3<f32>(1.0, 0.0, 1.0)), u.x),
-            mix(dot(hash3(i + vec3<f32>(0.0, 1.0, 1.0)), f - vec3<f32>(0.0, 1.0, 1.0)),
-                dot(hash3(i + vec3<f32>(1.0, 1.0, 1.0)), f - vec3<f32>(1.0, 1.0, 1.0)), u.x),
+            mix(hash(i + vec3<f32>(0.0, 0.0, 1.0)), hash(i + vec3<f32>(1.0, 0.0, 1.0)), u.x),
+            mix(hash(i + vec3<f32>(0.0, 1.0, 1.0)), hash(i + vec3<f32>(1.0, 1.0, 1.0)), u.x),
             u.y,
         ),
         u.z,
-    ) * 0.5 + 0.5;
+    );
 }
 
 fn fbm(p: vec3<f32>) -> f32 {
     var value = 0.0;
     var amplitude = 0.5;
-    var pos = p;
-    for (var i = 0; i < 5; i = i + 1) {
-        value = value + amplitude * gradient_noise(pos);
+    var frequency = 1.0;
+    for (var i = 0; i < 4; i = i + 1) {
+        value = value + amplitude * noise3d(p * frequency);
         amplitude = amplitude * 0.5;
-        // Rotate domain each octave to break axis-aligned repetition
-        pos = vec3<f32>(pos.y + pos.z, pos.z + pos.x, pos.x + pos.y) * 1.0 + pos * 1.0;
+        frequency = frequency * 2.0;
     }
     return value;
 }
@@ -107,11 +97,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Spherical noise sampling with slow drift
     let drift = uniforms.time * 0.003;
-    let noise_scale = 5.0;
+    let noise_scale = 3.8;
     let noise_pos = ecef_dir * noise_scale + vec3<f32>(drift, drift * 0.7, drift * 0.3);
 
-    // Single FBM sample — gradient noise with domain rotation eliminates grid artifacts
-    let cloud_density = fbm(noise_pos);
+    // Derivative-aware supersampling to suppress far-distance subpixel shimmer.
+    let dx = dpdx(noise_pos);
+    let dy = dpdy(noise_pos);
+    let cloud_density = (
+        fbm(noise_pos)
+        + fbm(noise_pos + 0.5 * dx)
+        + fbm(noise_pos + 0.5 * dy)
+        + fbm(noise_pos + 0.5 * (dx + dy))
+    ) * 0.25;
 
     // Slightly denser cloud coverage (+~10%) with antialiased transition.
     let base_low = 0.32;

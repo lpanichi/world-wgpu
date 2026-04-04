@@ -276,8 +276,6 @@ impl<Message> shader::Program<Message> for Simulation {
         _cursor: mouse::Cursor,
         bounds: iced::Rectangle,
     ) -> Self::Primitive {
-        // TODO compute next frame date here from simulation then update camera
-        // if necessary and pass this date to render pipeline
         let elapsed = self.elapsed_time();
         let earth_phase = self.earth_rotation_phase();
 

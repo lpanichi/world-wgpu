@@ -8,8 +8,8 @@ use iced::wgpu::{
 };
 use nalgebra::Vector3;
 
-/// Cloud layer radius = Earth + ~40km? to avoid depth-fighting at far zoom.
-const CLOUD_SCALE: f32 = 1.0060;
+/// Cloud layer radius = Earth + ~19km to avoid depth-fighting at far zoom.
+const CLOUD_SCALE: f32 = 1.0030;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

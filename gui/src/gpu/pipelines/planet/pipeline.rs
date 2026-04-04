@@ -9,9 +9,9 @@ use iced::{
 
 use crate::astro::Astral;
 use crate::gpu::pipelines::planet::{
-    atmosphere::AtmospherePipeline, camera::Camera, cloud::CloudPipeline, moon::MoonPipeline,
-    star_catalog::StarCatalogPipeline, texture, trajectory::TrajectoryPipeline, uniforms::Uniforms,
-    vertex::TextureVertex,
+    atmosphere::AtmospherePipeline, camera::Camera, clear_quad::ClearQuadPipeline,
+    cloud::CloudPipeline, moon::MoonPipeline, star_catalog::StarCatalogPipeline, texture,
+    trajectory::TrajectoryPipeline, uniforms::Uniforms, vertex::TextureVertex,
 };
 use crate::{
     gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode},
@@ -40,6 +40,7 @@ pub struct Pipeline {
     moon: MoonPipeline,
     cloud: CloudPipeline,
     atmosphere: AtmospherePipeline,
+    clear_quad: ClearQuadPipeline,
     planet_vertices_count: u32,
     depth_texture: Option<wgpu::Texture>,
     depth_size: (u32, u32),
@@ -192,6 +193,7 @@ impl Pipeline {
         let moon = MoonPipeline::new(device, queue, format);
         let cloud = CloudPipeline::new(device, queue, format);
         let atmosphere = AtmospherePipeline::new(device, queue, format);
+        let clear_quad = ClearQuadPipeline::new(device, format);
 
         Pipeline {
             vertices,
@@ -208,6 +210,7 @@ impl Pipeline {
             moon,
             cloud,
             atmosphere,
+            clear_quad,
             planet_vertices_count: 0,
             depth_texture: None,
             depth_size: (0, 0),
@@ -403,12 +406,7 @@ impl Pipeline {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.0009,
-                        g: 0.0012,
-                        b: 0.0034,
-                        a: 1.0,
-                    }),
+                    load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -433,6 +431,16 @@ impl Pipeline {
             0.0,
             1.0,
         );
+        render_pass.set_scissor_rect(
+            clip_bounds.x,
+            clip_bounds.y,
+            clip_bounds.width,
+            clip_bounds.height,
+        );
+
+        // Manual clear within scissor — only affects the shader viewport area,
+        // preserving iced container backgrounds outside it.
+        self.clear_quad.render(&mut render_pass);
 
         self.star_catalog.render(&mut render_pass);
 

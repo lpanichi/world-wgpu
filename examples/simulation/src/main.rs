@@ -10,13 +10,13 @@ use gui::{
         system::{EARTH_RADIUS_KM, System},
     },
     ui::{
-        components::button::{ButtonVariant, icon_button},
         screens::main_screen::{
             self, BuilderForm, SidebarTab, error_banner, kpi_panel, orbit_builder_panel,
-            orbit_manager_item, rect_surface_builder_panel, satellite_builder_panel, sidebar,
-            sim_controls_panel, station_builder_panel, station_manager_item, status_bar, tab_bar,
+            orbit_manager_item, rect_surface_builder_panel, satellite_builder_panel,
+            satellite_manager_item, sim_controls_panel, station_builder_panel,
+            station_manager_item, status_bar, tab_bar, workbench_layout,
         },
-        theme::{colors, icons, spacing, typography},
+        theme::{colors, spacing, typography},
     },
 };
 use iced::{
@@ -25,7 +25,7 @@ use iced::{
     Theme,
     keyboard::{self, Key},
     time::{self, milliseconds},
-    widget::{column, container, pane_grid, row, shader, text},
+    widget::{column, container, shader, text},
 };
 use log::{debug, info};
 
@@ -37,9 +37,6 @@ enum Message {
     Event(iced::event::Event),
     Tick,
     OnObjectSelected(SelectedObject, Option<f32>),
-    PaneClicked(pane_grid::Pane),
-    PaneDragged(pane_grid::DragEvent),
-    PaneResized(pane_grid::ResizeEvent),
     ToggleFrame,
     SwitchMode(SidebarTab),
     ShowBuilderPane(BuilderForm),
@@ -95,21 +92,8 @@ enum Message {
     KpiSatIndexInput(String),
 }
 
-#[derive(Clone, Copy, Debug)]
-struct PaneState {
-    id: usize,
-}
-
-impl PaneState {
-    fn new(id: usize) -> Self {
-        Self { id }
-    }
-}
-
 struct Textured {
     program: Simulation,
-    panes: pane_grid::State<PaneState>,
-    focus: Option<pane_grid::Pane>,
     status_message: String,
     error_message: String,
     cursor_position: Option<(f32, f32)>,
@@ -201,14 +185,6 @@ impl Textured {
             }
             Message::OnObjectSelected(object, hit_distance) => {
                 self.handle_object_selected(object, hit_distance)
-            }
-            Message::PaneClicked(pane) => self.focus = Some(pane),
-            Message::PaneDragged(pane_grid::DragEvent::Dropped { pane, target }) => {
-                self.panes.drop(pane, target);
-            }
-            Message::PaneDragged(_) => {}
-            Message::PaneResized(event) => {
-                self.panes.resize(event.split, event.ratio);
             }
 
             Message::ToggleFrame => {
@@ -804,25 +780,21 @@ impl Textured {
             return None;
         }
 
-        let bounds = iced::Size::new(total_size.0, total_size.1);
-        let regions = self.panes.layout().pane_regions(4.0, 0.0, bounds);
+        // workbench_layout: status_bar on top, sidebar on left, viewport fills rest.
+        let x = spacing::SIDEBAR_WIDTH;
+        let y = spacing::STATUS_BAR_HEIGHT;
+        let w = total_size.0 - spacing::SIDEBAR_WIDTH;
+        let h = total_size.1 - spacing::STATUS_BAR_HEIGHT;
 
-        let shader_pane =
-            self.panes.iter().find_map(
-                |(pane, state)| {
-                    if state.id == 0 { Some(*pane) } else { None }
-                },
-            )?;
+        if w <= 0.0 || h <= 0.0 {
+            return None;
+        }
 
-        let region = regions.get(&shader_pane)?;
-
-        Some((region.x, region.y, region.width, region.height))
+        Some((x, y, w, h))
     }
 
-    fn control_panel(&self) -> Element<'_, Message> {
+    fn build_status_bar(&self) -> Element<'_, Message> {
         let meta = &self.program.system;
-
-        // --- Status bar texts ---
         let status_left = &self.status_message;
         let status_center = format!("Date: {}", meta.simulation_date_string());
         let status_right = format!(
@@ -831,7 +803,10 @@ impl Textured {
             self.program.time_scale,
             self.program.frame_mode,
         );
+        status_bar(status_left, &status_center, &status_right)
+    }
 
+    fn build_sidebar(&self) -> Element<'_, Message> {
         // --- Sim controls ---
         let sim_controls = sim_controls_panel(
             self.program.paused,
@@ -866,15 +841,32 @@ impl Textured {
         };
 
         // --- Compose sidebar ---
-        let sidebar_content = sidebar(vec![
-            status_bar(status_left, &status_center, &status_right),
-            sim_controls,
-            tabs,
-            error,
-            mode_content,
-        ]);
+        let mut col = iced::widget::Column::new().spacing(spacing::SECTION_GAP);
+        col = col.push(sim_controls);
+        col = col.push(tabs);
+        col = col.push(error);
+        col = col.push(mode_content);
 
-        sidebar_content
+        let scrollable_content = iced::widget::scrollable(
+            container(col)
+                .padding(spacing::SIDEBAR_PADDING)
+                .width(iced::Length::Fill),
+        )
+        .height(iced::Length::Fill);
+
+        container(scrollable_content)
+            .width(iced::Length::Fixed(spacing::SIDEBAR_WIDTH))
+            .height(iced::Length::Fill)
+            .style(|_theme| container::Style {
+                background: Some(iced::Background::Color(colors::BG_ELEVATED)),
+                border: iced::Border {
+                    color: colors::BORDER,
+                    width: 0.0,
+                    radius: 0.0.into(),
+                },
+                ..container::Style::default()
+            })
+            .into()
     }
 
     fn builder_panel(&self) -> Element<'_, Message> {
@@ -975,25 +967,11 @@ impl Textured {
 
             // Satellite sub-items
             for (si, sat) in orbit.satellites.iter().enumerate() {
-                items.push(
-                    row![
-                        text(format!("  └ {}", sat.name))
-                            .size(typography::SIZE_SM)
-                            .color(colors::TEXT_SECONDARY),
-                        icon_button(
-                            icons::TRASH,
-                            ButtonVariant::Danger,
-                            Some(Message::DeleteSatellite(i, si))
-                        ),
-                        icon_button(
-                            icons::CAMERA,
-                            ButtonVariant::Default,
-                            Some(Message::FollowSatellite(Some((i, si))))
-                        ),
-                    ]
-                    .spacing(spacing::TOOLBAR_GAP)
-                    .into(),
-                );
+                items.push(satellite_manager_item(
+                    &sat.name,
+                    Message::DeleteSatellite(i, si),
+                    Message::FollowSatellite(Some((i, si))),
+                ));
             }
         }
 
@@ -1089,23 +1067,11 @@ impl Textured {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let pane_grid = pane_grid::PaneGrid::new(&self.panes, |_, pane_state, _| {
-            let content: Element<'_, Message> = match pane_state.id {
-                0 => shader(&self.program).width(Fill).height(Fill).into(),
-                1 => self.control_panel(),
-                _ => text("Unknown pane").into(),
-            };
-
-            pane_grid::Content::new(content)
-        })
-        .width(Fill)
-        .height(Fill)
-        .spacing(spacing::XXXS)
-        .on_click(Message::PaneClicked)
-        .on_drag(Message::PaneDragged)
-        .on_resize(4, Message::PaneResized);
-
-        container(pane_grid).padding(spacing::XXXS).into()
+        workbench_layout(
+            self.build_status_bar(),
+            self.build_sidebar(),
+            shader(&self.program).width(Fill).height(Fill).into(),
+        )
     }
 }
 
@@ -1154,9 +1120,6 @@ impl Default for Textured {
             200.,
         );
 
-        let (mut panes, root_pane) = pane_grid::State::new(PaneState::new(0));
-        let _ = panes.split(pane_grid::Axis::Vertical, root_pane, PaneState::new(1));
-
         Self {
             program: Simulation {
                 system,
@@ -1169,12 +1132,10 @@ impl Default for Textured {
                 pick_radius_scale: 2.0,
                 show_clouds: true,
             },
-            panes,
-            focus: Some(root_pane),
             status_message: "Ready".to_string(),
             error_message: String::new(),
             panel_mode: SidebarTab::Builder,
-            builder_pane: BuilderForm::None,
+            builder_pane: BuilderForm::Orbit,
             orbit_altitude_input: "500".to_string(),
             orbit_inclination_input: "20".to_string(),
             orbit_raan_input: "30".to_string(),

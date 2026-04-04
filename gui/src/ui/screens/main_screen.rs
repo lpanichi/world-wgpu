@@ -591,6 +591,23 @@ pub fn station_manager_item<'a, M: Clone + 'a>(
     )
 }
 
+/// A single satellite sub-item in the resource manager.
+pub fn satellite_manager_item<'a, M: Clone + 'a>(
+    name: &str,
+    on_delete: M,
+    on_follow: M,
+) -> Element<'a, M> {
+    row![
+        text(format!("  └ {}", name))
+            .size(typography::SIZE_SM)
+            .color(colors::TEXT_SECONDARY),
+        icon_button(icons::TRASH, ButtonVariant::Danger, Some(on_delete)),
+        icon_button(icons::CAMERA, ButtonVariant::Default, Some(on_follow)),
+    ]
+    .spacing(spacing::TOOLBAR_GAP)
+    .into()
+}
+
 // ---------------------------------------------------------------------------
 // KPI panel
 // ---------------------------------------------------------------------------
