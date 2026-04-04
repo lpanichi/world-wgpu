@@ -1,15 +1,13 @@
-/// Vernal Equinox validation example.
+/// Summer Solstice validation example.
 ///
-/// Validates that on the March equinox (~day 79-80):
-/// - The Sun direction lies in the equatorial plane (declination ≈ 0°)
-/// - The subsolar point latitude is near 0°
-/// - The Earth-Sun line is perpendicular to the Earth's rotation axis
-/// - ECI and ECEF frames are displayed for reference
-/// - Key geographic points (0°,0° and poles) are marked on the surface
+/// Validates that on the June solstice (~day 172):
+/// - Solar declination is ≈ +23.44° (maximum)
+/// - The subsolar point is at latitude ≈ +23.44° (Tropic of Cancer)
+/// - The Sun direction has a significant +Z component in ECI
+/// - Earth-Sun line tilts northward from the equatorial plane
 use chrono::{TimeZone, Utc};
 use gui::astro::Astral;
 use gui::gpu::pipelines::planet::{camera::Camera, satellite::SatelliteRenderMode};
-use gui::model::shapes::lat_lon_to_ecef;
 use gui::model::system::System;
 use gui::simulation::{FrameMode, Simulation as ProgramSimulation};
 use iced::keyboard::{self, Key, key::Named};
@@ -17,7 +15,7 @@ use iced::mouse;
 use iced::time;
 use iced::widget::{column, container, shader, text};
 use iced::{Element, Length};
-use nalgebra::{Point3, Vector3};
+use nalgebra::Point3;
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -25,7 +23,7 @@ enum Message {
     Event(iced::event::Event),
 }
 
-struct VernalEquinoxSimulation {
+struct SolsticeSimulation {
     program: ProgramSimulation,
     validation_info: String,
     cursor_position: Option<(f32, f32)>,
@@ -33,60 +31,39 @@ struct VernalEquinoxSimulation {
     right_button_down: bool,
 }
 
-impl VernalEquinoxSimulation {
+impl SolsticeSimulation {
     fn new() -> Self {
-        // March 20, 2025 12:00 UTC — approximate vernal equinox
-        let vernal_time = Utc.with_ymd_and_hms(2025, 3, 20, 12, 0, 0).unwrap();
-        let (day, hour) = Astral::datetime_to_day_hour(&vernal_time);
+        // June 21, 2025 12:00 UTC — approximate summer solstice
+        let solstice_time = Utc.with_ymd_and_hms(2025, 6, 21, 12, 0, 0).unwrap();
+        let (day, hour) = Astral::datetime_to_day_hour(&solstice_time);
 
         let (subsolar_lat, subsolar_lon) = Astral::subsolar_point(day, hour);
         let declination = Astral::solar_declination_deg(day);
         let sun_dir = Astral::sun_inertial_position(day, hour);
 
-        // Camera looks from the Sun direction
-        let subsolar_ecef = lat_lon_to_ecef(subsolar_lat as f32, subsolar_lon as f32);
-        let subsolar_direction =
-            Vector3::new(subsolar_ecef[0], subsolar_ecef[1], subsolar_ecef[2]).normalize();
-        let camera_distance = 30_000.0;
-        let camera_eye = Point3::from(subsolar_direction * camera_distance);
+        // Camera from above-side to see the tilt
+        let camera_eye = Point3::new(0.0, -25_000.0, 15_000.0);
 
-        let mut core_sim = System::builder().build(vernal_time);
+        let mut core_sim = System::builder().build(solstice_time);
         core_sim.simulation_speed = 0;
 
         let earth_radius = gui::model::system::EARTH_RADIUS_KM;
         let axis_len = earth_radius * 2.0;
 
-        // ECI frame at origin
+        // ECI frame
         core_sim.shapes.add_eci_frame(axis_len);
 
-        // ECEF frame (rotates dynamically)
-        core_sim.shapes.add_ecef_frame(axis_len * 0.8);
-
-        // Sun direction line
+        // Sun direction
         core_sim.shapes.add_sun_line(
             [sun_dir[0] as f32, sun_dir[1] as f32, sun_dir[2] as f32],
             earth_radius * 3.0,
         );
 
-        // Key geographic points on the surface
-        core_sim
-            .shapes
-            .add_surface_point(0.0, 0.0, "Equator/Greenwich (0°,0°)");
-        core_sim.shapes.add_surface_point(0.0, 90.0, "Equator 90°E");
-        core_sim
-            .shapes
-            .add_surface_point(0.0, -90.0, "Equator 90°W");
-        core_sim
-            .shapes
-            .add_surface_point(0.0, 180.0, "Equator 180°");
-        core_sim.shapes.add_surface_point(90.0, 0.0, "North Pole");
-        core_sim.shapes.add_surface_point(-90.0, 0.0, "South Pole");
-
-        // Subsolar point
+        // Subsolar point on surface
         core_sim.shapes.add_surface_point(
             subsolar_lat as f32,
             subsolar_lon as f32,
-            "Subsolar point",
+            "Subsolar (Tropic of Cancer)",
         );
         core_sim.shapes.add_surface_line(
             subsolar_lat as f32,
@@ -95,14 +72,21 @@ impl VernalEquinoxSimulation {
             "Subsolar radial",
         );
 
-        // Terminator longitudes at equator
-        let (term_w, term_e) = Astral::terminator_longitudes(subsolar_lon);
+        // Tropic of Cancer line (≈23.44°N) — mark several points along it
+        for lon in (-180..=180).step_by(30) {
+            core_sim.shapes.add_surface_point(23.44, lon as f32, "");
+        }
+
+        // Arctic circle (≈66.56°N)
+        for lon in (-180..=180).step_by(30) {
+            core_sim.shapes.add_surface_point(66.56, lon as f32, "");
+        }
+
+        // Equator reference
         core_sim
             .shapes
-            .add_surface_point(0.0, term_w as f32, "Terminator West");
-        core_sim
-            .shapes
-            .add_surface_point(0.0, term_e as f32, "Terminator East");
+            .add_surface_point(0.0, 0.0, "Equator (0°,0°)");
+        core_sim.shapes.add_surface_point(90.0, 0.0, "North Pole");
 
         let mut camera = Camera::new(camera_eye, [0.0, 0.0, 0.0].into(), 1600.0, 900.0);
         camera.fovy = 30.;
@@ -120,17 +104,15 @@ impl VernalEquinoxSimulation {
         };
 
         let validation_info = format!(
-            "VERNAL EQUINOX VALIDATION — Day {} ({}) | \
-             Declination: {:.4}° (expect ≈0°) | \
+            "SUMMER SOLSTICE VALIDATION — Day {} ({}) | \
+             Declination: {:.4}° (expect ≈+23.44°) | \
              Subsolar: ({:.2}°, {:.2}°) | \
-             Sun ECI: ({:.4}, {:.4}, {:.4}) — Z≈0 validates equatorial Sun",
+             Sun ECI Z: {:.4} (positive = north tilt)",
             day,
-            vernal_time.format("%Y-%m-%d %H:%M UTC"),
+            solstice_time.format("%Y-%m-%d %H:%M UTC"),
             declination,
             subsolar_lat,
             subsolar_lon,
-            sun_dir[0],
-            sun_dir[1],
             sun_dir[2],
         );
 
@@ -144,7 +126,7 @@ impl VernalEquinoxSimulation {
     }
 }
 
-impl iced::widget::shader::Program<Message> for VernalEquinoxSimulation {
+impl iced::widget::shader::Program<Message> for SolsticeSimulation {
     type State = <ProgramSimulation as iced::widget::shader::Program<Message>>::State;
     type Primitive = <ProgramSimulation as iced::widget::shader::Program<Message>>::Primitive;
 
@@ -163,7 +145,7 @@ impl iced::widget::shader::Program<Message> for VernalEquinoxSimulation {
     }
 }
 
-fn update(sim: &mut VernalEquinoxSimulation, message: Message) {
+fn update(sim: &mut SolsticeSimulation, message: Message) {
     match message {
         Message::Tick => {}
         Message::Event(event) => {
@@ -231,7 +213,7 @@ fn update(sim: &mut VernalEquinoxSimulation, message: Message) {
     }
 }
 
-fn view(sim: &VernalEquinoxSimulation) -> Element<'_, Message> {
+fn view(sim: &SolsticeSimulation) -> Element<'_, Message> {
     let scene = shader(sim).width(Length::Fill).height(Length::Fill);
     let info = text(&sim.validation_info).size(14);
 
@@ -245,8 +227,8 @@ fn view(sim: &VernalEquinoxSimulation) -> Element<'_, Message> {
 fn main() -> iced::Result {
     env_logger::init();
 
-    iced::application(VernalEquinoxSimulation::new, update, view)
-        .subscription(|_state: &VernalEquinoxSimulation| {
+    iced::application(SolsticeSimulation::new, update, view)
+        .subscription(|_state: &SolsticeSimulation| {
             iced::Subscription::batch([
                 time::every(std::time::Duration::from_millis(16)).map(|_| Message::Tick),
                 iced::event::listen().map(Message::Event),

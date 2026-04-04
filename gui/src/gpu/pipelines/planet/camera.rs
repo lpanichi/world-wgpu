@@ -44,7 +44,7 @@ impl Camera {
             aspect: width / height,
             fovy: 70.0,
             znear: 1.0,
-            zfar: 200_000.0,
+            zfar: 100_000.0,
         };
 
         camera.refresh_up();

@@ -1,9 +1,9 @@
-use astro::Astral;
+use crate::astro::Astral;
 use chrono::{DateTime, Datelike, TimeDelta, Timelike, Utc};
 
 use crate::{
     gpu::pipelines::planet::vertex::{TextureVertex, into_textured_vertex},
-    model::{ground_station::GroundStation, orbit::Orbit},
+    model::{ground_station::GroundStation, orbit::Orbit, shapes::Shapes},
 };
 use geometry::tesselation::build_sphere;
 use nalgebra::{Matrix4, Rotation3, Unit, Vector3};
@@ -23,6 +23,8 @@ pub struct System {
     pub precession_enabled: bool,
     /// Stored rectangular surfaces defined by (min_lat, max_lat, min_lon, max_lon) in degrees.
     pub rect_surfaces: Vec<(f32, f32, f32, f32)>,
+    /// Shapes (lines, points, frames, orbital elements) for validation overlays.
+    pub shapes: Shapes,
 }
 
 impl System {
@@ -311,6 +313,15 @@ impl System {
             ranges.push((start, end - start));
         }
 
+        // Shapes (lines, points, frames, orbital elements)
+        let earth_angle = self.earth_rotation() as f32;
+        let (shape_pts, shape_ranges) = self.shapes.line_points(earth_angle);
+        let offset = points.len() as u32;
+        points.extend(shape_pts);
+        for (s, l) in shape_ranges {
+            ranges.push((s + offset, l));
+        }
+
         (points, ranges)
     }
 
@@ -494,6 +505,7 @@ impl SimulationBuilder {
             simulation_speed: 60,
             precession_enabled: false,
             rect_surfaces: Vec::new(),
+            shapes: Shapes::new(),
         }
     }
 }

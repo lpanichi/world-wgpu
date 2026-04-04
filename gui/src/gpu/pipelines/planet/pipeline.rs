@@ -44,6 +44,7 @@ pub struct Pipeline {
     planet_vertices_count: u32,
     depth_texture: Option<wgpu::Texture>,
     depth_size: (u32, u32),
+    show_clouds: bool,
 }
 
 impl Pipeline {
@@ -267,6 +268,7 @@ impl Pipeline {
             planet_vertices_count: 0,
             depth_texture: None,
             depth_size: (0, 0),
+            show_clouds: true,
         }
     }
 
@@ -282,7 +284,9 @@ impl Pipeline {
         elapsed: f32,
         earth_rotation_angle: f32,
         satellite_mode: SatelliteRenderMode,
+        show_clouds: bool,
     ) {
+        self.show_clouds = show_clouds;
         let width = viewport.physical_width();
         let height = viewport.physical_height();
 
@@ -368,8 +372,10 @@ impl Pipeline {
         self.moon.prepare(queue, camera, moon_pos, sun_dir);
 
         // Clouds
-        self.cloud
-            .prepare(queue, camera, sun_dir, earth_spin, elapsed);
+        if self.show_clouds {
+            self.cloud
+                .prepare(queue, camera, sun_dir, earth_spin, elapsed);
+        }
 
         // Atmosphere
         self.atmosphere.prepare(queue, camera, sun_dir, earth_spin);
@@ -466,7 +472,9 @@ impl Pipeline {
         }
 
         // Clouds rendered after planet, before other objects
-        self.cloud.render(&mut render_pass);
+        if self.show_clouds {
+            self.cloud.render(&mut render_pass);
+        }
 
         self.satellite.render(&mut render_pass);
         self.station.render(&mut render_pass);

@@ -16,7 +16,7 @@
 
 [workspace]
 resolver = "3"
-members = ["gui", "geometry", "astro", "examples/*"]
+members = ["gui", "geometry", "examples/*"]
 
 [package]
 name = "world-wgpu"
@@ -44,14 +44,12 @@ rust-version = "1.93"
 [workspace.dependencies]
 gui = { version = "0.1.0", path = "gui" }
 geometry = { version = "0.1.0", path = "geometry" }
-astro = { version = "0.1.0", path = "astro" }
 
 iced = { version = "0.14.0", default-features = true, features = ["smol"] }
 winit = { version = "0.30.12", features = ["rwh_05"] }
 env_logger = "0.11.8"
 log = "0.4.29"
 pollster = "0.4.0"
-# wgpu = "28.0.0"
 bytemuck = { version = "1.25.0", features = ["derive"] }
 anyhow = "1.0.100"
 assertor = "0.0.4"
@@ -71,7 +69,6 @@ winit = { version = "0.30.12", features = ["rwh_05"] }
 env_logger = "0.11.8"
 log = "0.4.29"
 pollster = "0.4.0"
-# wgpu = "28.0.0"
 bytemuck = { version = "1.25.0", features = ["derive"] }
 anyhow = "1.0.100"
 assertor = "0.0.4"
@@ -89,6 +86,26 @@ path = "examples/simulation/src/main.rs"
 [[example]]
 name = "vernal_equinox"
 path = "examples/vernal_equinox/src/main.rs"
+
+[[example]]
+name = "summer_solstice"
+path = "examples/summer_solstice/src/main.rs"
+
+[[example]]
+name = "moon_phases"
+path = "examples/moon_phases/src/main.rs"
+
+[[example]]
+name = "earth_texture"
+path = "examples/earth_texture/src/main.rs"
+
+[[example]]
+name = "orbit_elements"
+path = "examples/orbit_elements/src/main.rs"
+
+[[example]]
+name = "frame_validation"
+path = "examples/frame_validation/src/main.rs"
 
 [workspace.lints.clippy]
 large-enum-variant = "allow"

@@ -31,6 +31,7 @@ pub struct Simulation {
     pub paused: bool,
     pub time_scale: f32,
     pub pick_radius_scale: f32,
+    pub show_clouds: bool,
 }
 
 impl Simulation {
@@ -288,6 +289,7 @@ impl<Message> shader::Program<Message> for Simulation {
             elapsed,
             earth_rotation_angle: earth_phase,
             satellite_mode: self.satellite_mode,
+            show_clouds: self.show_clouds,
         }
     }
 }
@@ -299,6 +301,7 @@ pub struct Primitive {
     elapsed: f32,
     earth_rotation_angle: f32,
     satellite_mode: SatelliteRenderMode,
+    show_clouds: bool,
 }
 
 impl shader::Primitive for Primitive {
@@ -322,6 +325,7 @@ impl shader::Primitive for Primitive {
             self.elapsed,
             self.earth_rotation_angle,
             self.satellite_mode,
+            self.show_clouds,
         );
     }
 

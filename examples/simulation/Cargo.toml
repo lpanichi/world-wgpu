@@ -12,5 +12,5 @@ iced.workspace = true
 nalgebra.workspace = true
 bytemuck.workspace = true
 log.workspace = true
-env_logger = "0.10"
-chrono = "0.4"
+env_logger.workspace = true
+chrono.workspace = true

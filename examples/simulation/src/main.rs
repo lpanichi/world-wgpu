@@ -1167,6 +1167,7 @@ impl Default for Textured {
                 paused: false,
                 time_scale: 120.0,
                 pick_radius_scale: 2.0,
+                show_clouds: true,
             },
             panes,
             focus: Some(root_pane),
