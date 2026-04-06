@@ -22,11 +22,12 @@ pub struct PositionVertex {
 pub struct ColoredVertex {
     pub position: [f32; 3],
     pub color: [f32; 3],
+    pub rotate_with_earth: f32,
 }
 
 impl ColoredVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 2] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+    const ATTRIBS: [wgpu::VertexAttribute; 3] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32];
 
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {

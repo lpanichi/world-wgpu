@@ -98,6 +98,7 @@ impl ShapesPipeline {
             .map(|v| ColoredVertex {
                 position: [v[0], v[1], v[2]],
                 color: [v[3], v[4], v[5]],
+                rotate_with_earth: v[6],
             })
             .collect();
 
@@ -135,6 +136,7 @@ impl ShapesPipeline {
             vertices.push(ColoredVertex {
                 position: point,
                 color: ORBIT_COLOR,
+                rotate_with_earth: 0.0,
             });
         }
         for (start, len) in orbit_ranges {
@@ -146,6 +148,7 @@ impl ShapesPipeline {
             vertices.push(ColoredVertex {
                 position: point,
                 color: FEATURE_COLOR,
+                rotate_with_earth: 0.0,
             });
         }
         for (start, len) in feature_ranges {

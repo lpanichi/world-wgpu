@@ -11,7 +11,8 @@ use gui::astro::Astral;
 use gui::gpu::pipelines::planet::{camera::Camera, satellite::SatelliteRenderMode};
 use gui::model::shapes::lat_lon_to_ecef;
 use gui::model::system::System;
-use gui::simulation::{FrameMode, Simulation as ProgramSimulation};
+use gui::model::FrameMode;
+use gui::simulation::Simulation as ProgramSimulation;
 use iced::keyboard::{self, Key, key::Named};
 use iced::mouse;
 use iced::time;
@@ -64,6 +65,7 @@ impl VernalEquinoxSimulation {
 
         // Sun direction line
         core_sim.shapes.add_sun_line(
+            gui::model::FrameMode::Eci,
             [sun_dir[0] as f32, sun_dir[1] as f32, sun_dir[2] as f32],
             earth_radius * 3.0,
         );

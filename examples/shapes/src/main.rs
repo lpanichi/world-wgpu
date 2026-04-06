@@ -99,6 +99,7 @@ impl ShapesSimulation {
             .map(|vert| gui::gpu::pipelines::planet::vertex::ColoredVertex {
                 position: [vert[0], vert[1], vert[2]],
                 color: [vert[3], vert[4], vert[5]],
+                rotate_with_earth: vert[6],
             })
             .collect();
 
@@ -453,6 +454,7 @@ fn create_text_mesh() -> TextMesh {
 
     let mut shapes = Shapes::new();
     shapes.add_frame(
+        gui::model::FrameMode::Eci,
         [-6.0, 0.0, 0.0],
         [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         2.0,
@@ -466,7 +468,7 @@ fn create_text_mesh() -> TextMesh {
 }
 
 fn append_shapes_to_mesh(mesh: &mut TextMesh, shapes: &Shapes, earth_rotation_angle: f32) {
-    let (shape_vertices, shape_ranges) = shapes.line_points(earth_rotation_angle);
+    let (shape_vertices, shape_ranges) = shapes.get_shapes(earth_rotation_angle);
     let offset = mesh.vertices.len() as u32;
     mesh.vertices.extend(shape_vertices.into_iter());
     for (start, len) in shape_ranges {

@@ -2,7 +2,10 @@ use crate::{
     gpu::pipelines::planet::{
         camera::Camera, pipelines::Pipelines, satellite::SatelliteRenderMode,
     },
-    model::system::{EARTH_RADIUS_KM, System},
+    model::{
+        FrameMode,
+        system::{EARTH_RADIUS_KM, System},
+    },
 };
 use chrono::Utc;
 use iced::{Rectangle, mouse, wgpu, widget::shader};
@@ -15,12 +18,6 @@ pub enum SelectedObject {
     Satellite(String),
     GroundStation(String),
     None,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum FrameMode {
-    Eci,
-    Ecef,
 }
 
 #[derive(Debug)]

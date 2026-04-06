@@ -29,7 +29,8 @@ use iced::{
 };
 use log::{debug, info};
 
-use gui::simulation::{FrameMode, SelectedObject, Simulation};
+use gui::model::FrameMode;
+use gui::simulation::{SelectedObject, Simulation};
 
 #[derive(Clone)]
 enum Message {

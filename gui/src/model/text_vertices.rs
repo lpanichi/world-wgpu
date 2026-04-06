@@ -12,8 +12,8 @@
 
 use nalgebra::Vector3;
 
-/// A colored vertex `[x, y, z, r, g, b]`.
-pub type ColoredVert = [f32; 6];
+/// A colored vertex `[x, y, z, r, g, b, rotate_with_earth]`.
+pub type ColoredVert = [f32; 7];
 
 /// Result of text generation: vertices + line-strip ranges.
 pub struct TextMesh {
@@ -123,7 +123,7 @@ pub fn build_axis_label(
 
 #[inline]
 fn cv(pos: [f32; 3], color: [f32; 3]) -> ColoredVert {
-    [pos[0], pos[1], pos[2], color[0], color[1], color[2]]
+    [pos[0], pos[1], pos[2], color[0], color[1], color[2], 0.0]
 }
 
 /// Emit a single character at `origin` using the local `u` (right) /

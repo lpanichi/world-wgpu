@@ -12,11 +12,12 @@
 use chrono::{TimeZone, Utc};
 use gui::astro::Astral;
 use gui::gpu::pipelines::planet::{camera::Camera, satellite::SatelliteRenderMode};
+use gui::model::FrameMode;
 use gui::model::ground_station::GroundStation;
 use gui::model::orbit::Orbit;
 use gui::model::satellite::Satellite;
 use gui::model::system::System;
-use gui::simulation::{FrameMode, Simulation as ProgramSimulation};
+use gui::simulation::Simulation as ProgramSimulation;
 use iced::keyboard::{self, Key, key::Named};
 use iced::mouse;
 use iced::time;
@@ -83,6 +84,7 @@ impl FrameValidationSimulation {
 
         // Sun direction
         core_sim.shapes.add_sun_line(
+            gui::model::FrameMode::Eci,
             [sun_dir[0] as f32, sun_dir[1] as f32, sun_dir[2] as f32],
             earth_radius * 3.0,
         );
@@ -155,12 +157,24 @@ fn update(sim: &mut FrameValidationSimulation, message: Message) {
             match event {
                 iced::event::Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => {
                     match key {
-                        Key::Named(Named::ArrowLeft) => sim.program.camera.rotate_around_up(-rotate_angle),
-                        Key::Named(Named::ArrowRight) => sim.program.camera.rotate_around_up(rotate_angle),
-                        Key::Named(Named::ArrowUp) => sim.program.camera.rotate_vertically(-rotate_angle),
-                        Key::Named(Named::ArrowDown) => sim.program.camera.rotate_vertically(rotate_angle),
-                        Key::Character(ch) if ch == "+" || ch == "=" => sim.program.camera.dolly(-zoom_amount),
-                        Key::Character(ch) if ch == "-" || ch == "_" => sim.program.camera.dolly(zoom_amount),
+                        Key::Named(Named::ArrowLeft) => {
+                            sim.program.camera.rotate_around_up(-rotate_angle)
+                        }
+                        Key::Named(Named::ArrowRight) => {
+                            sim.program.camera.rotate_around_up(rotate_angle)
+                        }
+                        Key::Named(Named::ArrowUp) => {
+                            sim.program.camera.rotate_vertically(-rotate_angle)
+                        }
+                        Key::Named(Named::ArrowDown) => {
+                            sim.program.camera.rotate_vertically(rotate_angle)
+                        }
+                        Key::Character(ch) if ch == "+" || ch == "=" => {
+                            sim.program.camera.dolly(-zoom_amount)
+                        }
+                        Key::Character(ch) if ch == "-" || ch == "_" => {
+                            sim.program.camera.dolly(zoom_amount)
+                        }
                         Key::Character(ch) if ch == "f" || ch == "F" => {
                             sim.program.frame_mode = match sim.program.frame_mode {
                                 FrameMode::Eci => FrameMode::Ecef,
@@ -183,11 +197,15 @@ fn update(sim: &mut FrameValidationSimulation, message: Message) {
                     }
                     sim.cursor_position = Some((x, y));
                 }
-                iced::event::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Right)) => {
+                iced::event::Event::Mouse(iced::mouse::Event::ButtonPressed(
+                    iced::mouse::Button::Right,
+                )) => {
                     sim.right_button_down = true;
                     sim.drag_start = sim.cursor_position;
                 }
-                iced::event::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Right)) => {
+                iced::event::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                    iced::mouse::Button::Right,
+                )) => {
                     sim.right_button_down = false;
                     sim.drag_start = None;
                 }

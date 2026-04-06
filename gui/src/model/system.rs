@@ -316,10 +316,10 @@ impl System {
         (points, ranges)
     }
 
-    /// Returns colored shape vertices `[x, y, z, r, g, b]` and ranges.
-    pub fn colored_shape_points(&self) -> (Vec<[f32; 6]>, Vec<(u32, u32)>) {
+    /// Returns colored shape vertices `[x, y, z, r, g, b, rotate_with_earth]` and ranges.
+    pub fn colored_shape_points(&self) -> (Vec<[f32; 7]>, Vec<(u32, u32)>) {
         let earth_angle = self.earth_rotation() as f32;
-        self.shapes.line_points(earth_angle)
+        self.shapes.get_shapes(earth_angle)
     }
 
     /// Compute distance in km between a ground station (by index) and a satellite.

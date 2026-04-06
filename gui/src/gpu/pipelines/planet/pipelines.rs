@@ -230,6 +230,7 @@ impl Pipelines {
                 .map(|p| ColoredVertex {
                     position: *p,
                     color: FEATURE_COLOR,
+                    rotate_with_earth: 0.0,
                 })
                 .collect();
             let size = bytemuck::cast_slice::<ColoredVertex, u8>(&colored_fov).len() as u64;
