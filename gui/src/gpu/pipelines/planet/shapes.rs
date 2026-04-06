@@ -1,9 +1,15 @@
-use iced::{
-    wgpu::{self, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, RenderPipeline, RenderPipelineDescriptor,  TextureFormat},
-};
-use crate::gpu::pipelines::planet::vertex::ColoredVertex;
+use crate::{gpu::pipelines::planet::vertex::ColoredVertex, model::system::System};
 
-pub struct TrajectoryPipeline {
+pub const ORBIT_SAMPLES: usize = 128;
+pub const ORBIT_COLOR: [f32; 3] = [1.0, 0.7, 0.2];
+pub const FEATURE_COLOR: [f32; 3] = [1.0, 0.7, 0.2];
+
+use iced::wgpu::{
+    self, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, RenderPipeline,
+    RenderPipelineDescriptor, TextureFormat,
+};
+
+pub struct ShapesPipeline {
     pipeline: RenderPipeline,
     buffer: Option<Buffer>,
     ranges: Vec<(u32, u32)>,
@@ -11,21 +17,21 @@ pub struct TrajectoryPipeline {
     shapes_ranges: Vec<(u32, u32)>,
 }
 
-impl TrajectoryPipeline {
+impl ShapesPipeline {
     pub fn new(
         device: &wgpu::Device,
         format: TextureFormat,
         uniform_bind_group_layout: &BindGroupLayout,
     ) -> Self {
-        let colored_shader = device
-            .create_shader_module(wgpu::include_wgsl!("../../shaders/colored_line_shader.wgsl"));
+        let colored_shader = device.create_shader_module(wgpu::include_wgsl!(
+            "../../shaders/colored_line_shader.wgsl"
+        ));
 
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Trajectory Pipeline Layout"),
-                bind_group_layouts: &[uniform_bind_group_layout],
-                ..Default::default()
-            });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Shapes Pipeline Layout"),
+            bind_group_layouts: &[uniform_bind_group_layout],
+            ..Default::default()
+        });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("Colored Line Pipeline"),
@@ -71,7 +77,7 @@ impl TrajectoryPipeline {
             cache: None,
         });
 
-        TrajectoryPipeline {
+        ShapesPipeline {
             pipeline,
             buffer: None,
             ranges: Vec::new(),
@@ -96,7 +102,7 @@ impl TrajectoryPipeline {
         let size = (std::mem::size_of::<ColoredVertex>() * vertices.len()) as u64;
 
         let buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Trajectory Buffer"),
+            label: Some("Shapes Buffer"),
             size,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -108,13 +114,21 @@ impl TrajectoryPipeline {
         self.ranges = ranges;
     }
 
-    pub fn set_shapes_data(
+    pub fn set_colored_shape_data(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        vertices: Vec<ColoredVertex>,
-        ranges: Vec<(u32, u32)>,
+        system: &System,
     ) {
+        let (colored_verts, colored_ranges) = system.colored_shape_points();
+        let vertices: Vec<ColoredVertex> = colored_verts
+            .iter()
+            .map(|v| ColoredVertex {
+                position: [v[0], v[1], v[2]],
+                color: [v[3], v[4], v[5]],
+            })
+            .collect();
+
         if vertices.is_empty() {
             self.shapes_buffer = None;
             self.shapes_ranges = Vec::new();
@@ -122,9 +136,8 @@ impl TrajectoryPipeline {
         }
 
         let size = (std::mem::size_of::<ColoredVertex>() * vertices.len()) as u64;
-
         let buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Colored Line Buffer"),
+            label: Some("Shapes Buffer"),
             size,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -133,7 +146,68 @@ impl TrajectoryPipeline {
         queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&vertices));
 
         self.shapes_buffer = Some(buffer);
-        self.shapes_ranges = ranges;
+        self.shapes_ranges = colored_ranges;
+    }
+
+    pub fn set_orbit_feature_data(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        system: &System,
+        elapsed: f32,
+    ) {
+        let (orbit_points, orbit_ranges) = system.orbit_line_points(ORBIT_SAMPLES);
+        let (feature_points, feature_ranges) = system.features_line_points(elapsed);
+
+        if orbit_points.is_empty() && feature_points.is_empty() {
+            self.buffer = None;
+            self.ranges = Vec::new();
+            return;
+        }
+
+        let mut vertices = Vec::with_capacity(orbit_points.len() + feature_points.len());
+        let mut ranges = Vec::with_capacity(orbit_ranges.len() + feature_ranges.len());
+
+        let mut offset = 0u32;
+        for point in orbit_points {
+            vertices.push(ColoredVertex {
+                position: point,
+                color: ORBIT_COLOR,
+            });
+        }
+        for (start, len) in orbit_ranges {
+            ranges.push((start + offset, len));
+        }
+        offset = vertices.len() as u32;
+
+        for point in feature_points {
+            vertices.push(ColoredVertex {
+                position: point,
+                color: FEATURE_COLOR,
+            });
+        }
+        for (start, len) in feature_ranges {
+            ranges.push((start + offset, len));
+        }
+
+        if vertices.is_empty() {
+            self.buffer = None;
+            self.ranges = Vec::new();
+            return;
+        }
+
+        let size = (std::mem::size_of::<ColoredVertex>() * vertices.len()) as u64;
+        let buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Shapes Buffer"),
+            size,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&vertices));
+
+        self.buffer = Some(buffer);
+        self.ranges = ranges;
     }
 
     pub fn render(&self, render_pass: &mut wgpu::RenderPass<'_>, uniforms_bind_group: &BindGroup) {

@@ -10,7 +10,6 @@ pub struct Gpu<'window> {
     pub queue: wgpu::Queue,
     pub surface_format: wgpu::TextureFormat,
     pub surface_config: wgpu::SurfaceConfiguration,
-    pub depth_texture: wgpu::Texture,
 }
 
 impl<'window> Gpu<'window> {
@@ -79,8 +78,6 @@ impl<'window> Gpu<'window> {
 
         surface.configure(&device, &surface_config);
 
-        let depth_texture = Self::create_depth_texture(&device, &surface_config);
-
         Self {
             surface,
             adapter,
@@ -88,28 +85,7 @@ impl<'window> Gpu<'window> {
             queue,
             surface_format,
             surface_config,
-            depth_texture,
         }
-    }
-
-    fn create_depth_texture(
-        device: &wgpu::Device,
-        config: &wgpu::SurfaceConfiguration,
-    ) -> wgpu::Texture {
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Depth Texture"),
-            size: wgpu::Extent3d {
-                width: config.width,
-                height: config.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth24Plus,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        })
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -117,7 +93,6 @@ impl<'window> Gpu<'window> {
             self.surface_config.width = new_size.width;
             self.surface_config.height = new_size.height;
             self.surface.configure(&self.device, &self.surface_config);
-            self.depth_texture = Self::create_depth_texture(&self.device, &self.surface_config);
         }
     }
 

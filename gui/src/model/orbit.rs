@@ -97,16 +97,22 @@ impl Orbit {
         [vec.x, vec.y, vec.z]
     }
 
-    pub fn sampled_points(&self, steps: usize, elapsed: f32) -> Vec<[f32; 3]> {
+    pub fn generate_orbit_positions(&self, steps: usize) -> Vec<[f32; 3]> {
+        if steps == 0 {
+            return Vec::new();
+        }
+
+        let period = self.period_seconds.max(f32::EPSILON);
+        let dt = period / steps as f32;
+
         (0..steps)
             .map(|i| {
-                let t = i as f32 / steps as f32;
-                let angle = (t * std::f32::consts::TAU).rem_euclid(std::f32::consts::TAU);
+                let sample_time = i as f32 * dt;
                 let sat = Satellite {
                     name: "orbit_point".to_string(),
-                    phase_offset_rad: angle,
+                    phase_offset_rad: 0.0,
                 };
-                self.position(elapsed, &sat)
+                self.position(sample_time, &sat)
             })
             .collect()
     }

@@ -1,6 +1,8 @@
 use crate::{
-    gpu::pipelines::planet::{camera::Camera, pipeline::Pipeline, satellite::SatelliteRenderMode},
-    model::system::{EARTH_RADIUS_KM, System as CoreSystem},
+    gpu::pipelines::planet::{
+        camera::Camera, pipelines::Pipelines, satellite::SatelliteRenderMode,
+    },
+    model::system::{EARTH_RADIUS_KM, System},
 };
 use chrono::Utc;
 use iced::{Rectangle, mouse, wgpu, widget::shader};
@@ -23,7 +25,7 @@ pub enum FrameMode {
 
 #[derive(Debug)]
 pub struct Simulation {
-    pub system: CoreSystem,
+    pub system: System,
     pub camera: Camera,
     pub satellite_mode: SatelliteRenderMode,
     pub frame_mode: FrameMode,
@@ -35,14 +37,6 @@ pub struct Simulation {
 }
 
 impl Simulation {
-    pub fn earth_rotation_phase(&self) -> f32 {
-        self.system.earth_rotation() as f32
-    }
-
-    pub fn elapsed_time(&self) -> f32 {
-        self.system.elapsed_seconds()
-    }
-
     pub fn set_time_scale(&mut self, new_scale: f32) {
         let clamped = new_scale.clamp(0.1, 50_000.0);
         self.system.simulation_speed = clamped.max(1.0).round() as i32;
@@ -68,9 +62,9 @@ impl Simulation {
     }
 
     pub fn tick(&mut self) {
-        let phase_before = self.earth_rotation_phase();
+        let phase_before = self.system.earth_rotation() as f32;
         self.system.tick();
-        let phase_after = self.earth_rotation_phase();
+        let phase_after = self.system.earth_rotation() as f32;
 
         if self.frame_mode == FrameMode::Ecef {
             let world_delta = (phase_after - phase_before).rem_euclid(std::f32::consts::TAU);
@@ -85,7 +79,10 @@ impl Simulation {
         }
     }
 
-    fn frame_adjusted_camera(&self, width: f32, height: f32, _earth_phase: f32) -> Camera {
+    fn frame_adjusted_camera(&self, width: f32, height: f32) -> Camera {
+        // Return a temporary camera with updated aspect ratio for projection math.
+        // The underlying Simulation.camera is not mutated here, because this helper
+        // is used for one-off world-to-screen and ray casting calculations.
         let mut camera = self.camera.clone();
         camera.change_aspect(width, height);
         camera
@@ -108,7 +105,7 @@ impl Simulation {
             return None;
         }
 
-        let camera = self.frame_adjusted_camera(width, height, self.earth_rotation_phase());
+        let camera = self.frame_adjusted_camera(width, height);
         let view_proj = camera.build_view_projection_matrix();
 
         let world_point = Point4::new(world_pos.x, world_pos.y, world_pos.z, 1.0);
@@ -145,7 +142,7 @@ impl Simulation {
         let ndc_x = ((cursor.0 + 0.5) / width) * 2.0 - 1.0;
         let ndc_y = 1.0 - ((cursor.1 + 0.5) / height) * 2.0;
 
-        let camera = self.frame_adjusted_camera(width, height, self.earth_rotation_phase());
+        let camera = self.frame_adjusted_camera(width, height);
         let view_proj = camera.build_view_projection_matrix();
         let inv = view_proj.try_inverse()?;
 
@@ -218,13 +215,13 @@ impl Simulation {
 
         consider_object(SelectedObject::Earth, Point3::origin(), EARTH_RADIUS_KM);
 
-        let elapsed = self.elapsed_time();
+        let elapsed = self.system.elapsed_seconds();
         let earth_rotation_angle = self.system.earth_rotation() as f32;
         // The WGSL station_shader uses column-major earth_rotation(θ) which evaluates to
         // x'=cθ·x+sθ·y, y'=-sθ·x+cθ·y — that is Rz(-θ). Negate here to match.
         let ecef_to_eci = Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_rotation_angle);
 
-        let dot_radius = EARTH_RADIUS_KM * CoreSystem::SATELLITE_SCALE_FACTOR;
+        let dot_radius = EARTH_RADIUS_KM * System::SATELLITE_SCALE_FACTOR;
         let satellite_radius = match self.satellite_mode {
             SatelliteRenderMode::Dot => dot_radius,
             SatelliteRenderMode::Cube => dot_radius * 0.25,
@@ -276,16 +273,17 @@ impl<Message> shader::Program<Message> for Simulation {
         _cursor: mouse::Cursor,
         bounds: iced::Rectangle,
     ) -> Self::Primitive {
-        let elapsed = self.elapsed_time();
-        let earth_phase = self.earth_rotation_phase();
-
-        let camera = self.frame_adjusted_camera(bounds.width, bounds.height, earth_phase);
+        // `draw` is called by iced while rendering the shader widget.
+        // We clone the current camera and update the aspect ratio only for the
+        // rendered primitive. The Simulation.camera itself remains unchanged here.
+        // The owning application is responsible for persisting camera aspect updates
+        // when the window actually resizes.
+        let mut camera = self.camera.clone();
+        camera.change_aspect(bounds.width, bounds.height);
 
         Primitive {
             system: self.system.clone(),
             camera,
-            elapsed,
-            earth_rotation_angle: earth_phase,
             satellite_mode: self.satellite_mode,
             show_clouds: self.show_clouds,
         }
@@ -294,16 +292,14 @@ impl<Message> shader::Program<Message> for Simulation {
 
 #[derive(Debug)]
 pub struct Primitive {
-    system: CoreSystem,
+    system: System,
     camera: Camera,
-    elapsed: f32,
-    earth_rotation_angle: f32,
     satellite_mode: SatelliteRenderMode,
     show_clouds: bool,
 }
 
 impl shader::Primitive for Primitive {
-    type Pipeline = Pipeline;
+    type Pipeline = Pipelines;
 
     fn prepare(
         &self,
@@ -320,8 +316,6 @@ impl shader::Primitive for Primitive {
             viewport,
             &self.system,
             &self.camera,
-            self.elapsed,
-            self.earth_rotation_angle,
             self.satellite_mode,
             self.show_clouds,
         );
@@ -329,7 +323,7 @@ impl shader::Primitive for Primitive {
 
     fn render(
         &self,
-        pipeline: &Pipeline,
+        pipeline: &Pipelines,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         clip_bounds: &Rectangle<u32>,

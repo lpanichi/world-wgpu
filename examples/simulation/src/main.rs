@@ -171,7 +171,7 @@ impl Textured {
                 if let Some((orbit_idx, sat_idx)) = self.follow_satellite {
                     if let Some(orbit) = self.program.system.orbits.get(orbit_idx) {
                         if let Some(sat) = orbit.satellites.get(sat_idx) {
-                            let elapsed = self.program.elapsed_time();
+                            let elapsed = self.program.system.elapsed_seconds();
                             let pos = orbit.position(elapsed, sat);
                             let sat_pos = nalgebra::Point3::new(pos[0], pos[1], pos[2]);
                             self.program.camera.eye = sat_pos + self.follow_offset;
@@ -185,7 +185,7 @@ impl Textured {
                     self.kpi_orbit_index.parse::<usize>(),
                     self.kpi_sat_index.parse::<usize>(),
                 ) {
-                    let elapsed = self.program.elapsed_time();
+                    let elapsed = self.program.system.elapsed_seconds();
                     if let Some(dist) = self
                         .program
                         .system
@@ -212,7 +212,7 @@ impl Textured {
             }
 
             Message::ToggleFrame => {
-                let current_phase = self.program.earth_rotation_phase();
+                let current_phase = self.program.system.earth_rotation() as f32;
                 match self.program.frame_mode {
                     FrameMode::Eci => {
                         self.program.ecef_reference_earth_angle = current_phase;
@@ -567,7 +567,7 @@ impl Textured {
                         // Initialize offset along radial direction from satellite
                         if let Some(orbit) = self.program.system.orbits.get(o) {
                             if let Some(sat) = orbit.satellites.get(s) {
-                                let elapsed = self.program.elapsed_time();
+                                let elapsed = self.program.system.elapsed_seconds();
                                 let pos = orbit.position(elapsed, sat);
                                 let radial =
                                     nalgebra::Vector3::new(pos[0], pos[1], pos[2]).normalize();
@@ -1040,7 +1040,7 @@ impl Textured {
             self.kpi_orbit_index.parse::<usize>(),
             self.kpi_sat_index.parse::<usize>(),
         ) {
-            let elapsed = self.program.elapsed_time();
+            let elapsed = self.program.system.elapsed_seconds();
             self.program
                 .system
                 .station_satellite_distance(si, oi, sati, elapsed)

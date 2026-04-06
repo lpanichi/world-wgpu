@@ -1,17 +1,20 @@
 use iced::{
     Rectangle,
-    wgpu::{
-        self, BindGroup, Buffer, BufferDescriptor, RenderPassDescriptor, RenderPipeline,
-        RenderPipelineDescriptor,
-    },
+    wgpu::{self, BindGroup, Buffer, BufferDescriptor, RenderPassDescriptor},
     widget::shader,
 };
 
 use crate::astro::Astral;
 use crate::gpu::pipelines::planet::{
-    atmosphere::AtmospherePipeline, camera::Camera, clear_quad::ClearQuadPipeline,
-    cloud::CloudPipeline, moon::MoonPipeline, star_catalog::StarCatalogPipeline, texture,
-    trajectory::TrajectoryPipeline, uniforms::Uniforms, vertex::TextureVertex,
+    atmosphere::AtmospherePipeline,
+    camera::Camera,
+    clear_quad::ClearQuadPipeline,
+    cloud::CloudPipeline,
+    moon::MoonPipeline,
+    planet::PlanetPipeline,
+    shapes::{FEATURE_COLOR, ShapesPipeline},
+    star_catalog::StarCatalogPipeline,
+    uniforms::Uniforms,
 };
 use crate::{
     gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode},
@@ -21,18 +24,12 @@ use crate::{
 
 use nalgebra::Vector3;
 
-const ORBIT_SAMPLES: usize = 128;
-const ORBIT_COLOR: [f32; 3] = [1.0, 0.7, 0.2];
-const FEATURE_COLOR: [f32; 3] = [1.0, 0.7, 0.2];
-
-pub struct Pipeline {
-    vertices: Buffer,
-    texture_bind_group: BindGroup,
+pub struct Pipelines {
     uniforms: Buffer,
     uniforms_bind_group: BindGroup,
-    pipeline: RenderPipeline,
+    planet: PlanetPipeline,
     star_catalog: StarCatalogPipeline,
-    trajectory: TrajectoryPipeline,
+    shapes: ShapesPipeline,
     fov_fill_buffer: Option<Buffer>,
     fov_fill_vertex_count: u32,
     satellite: SatellitePipeline,
@@ -41,69 +38,18 @@ pub struct Pipeline {
     cloud: CloudPipeline,
     atmosphere: AtmospherePipeline,
     clear_quad: ClearQuadPipeline,
-    planet_vertices_count: u32,
     depth_texture: Option<wgpu::Texture>,
     depth_size: (u32, u32),
     show_clouds: bool,
+    initialized: bool,
 }
 
-impl Pipeline {
-    fn new(
+impl Pipelines {
+    pub fn new(
         device: &iced::wgpu::Device,
         queue: &iced::wgpu::Queue,
         format: iced::wgpu::TextureFormat,
     ) -> Self {
-        let shader =
-            device.create_shader_module(wgpu::include_wgsl!("../../shaders/planet_shader.wgsl"));
-
-        let vertices = device.create_buffer(&BufferDescriptor {
-            label: Some("Vertex Buffer"),
-            size: std::mem::size_of::<TextureVertex>() as u64,
-            usage: wgpu::BufferUsages::VERTEX,
-            mapped_at_creation: false,
-        });
-
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("texture_bind_group_layout"),
-            });
-
-        let texture_bytes = include_bytes!("../../textures/earthmap1k.jpg");
-        let texture =
-            texture::Texture::from_bytes(device, queue, texture_bytes, "Earth 1K texture").unwrap();
-        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
-                },
-            ],
-            label: Some("texture_bind_group"),
-        });
-
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Uniforms buffer"),
             size: std::mem::size_of::<Uniforms>() as u64,
@@ -135,57 +81,9 @@ impl Pipeline {
             }],
         });
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout for planet"),
-            bind_group_layouts: &[&texture_bind_group_layout, &uniform_bind_group_layout],
-            ..Default::default()
-        });
+        let planet = PlanetPipeline::new(device, queue, format, &uniform_bind_group_layout);
 
-        let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("Planet Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[TextureVertex::desc()],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview: None,
-            cache: None,
-        });
-
-        let trajectory = TrajectoryPipeline::new(device, format, &uniform_bind_group_layout);
+        let shapes = ShapesPipeline::new(device, format, &uniform_bind_group_layout);
         let star_catalog = StarCatalogPipeline::new(device, queue, format);
 
         let satellite = SatellitePipeline::new(device, queue, format);
@@ -195,14 +93,12 @@ impl Pipeline {
         let atmosphere = AtmospherePipeline::new(device, queue, format);
         let clear_quad = ClearQuadPipeline::new(device, format);
 
-        Pipeline {
-            vertices,
-            texture_bind_group,
+        Pipelines {
             uniforms,
             uniforms_bind_group,
-            pipeline,
+            planet,
             star_catalog,
-            trajectory,
+            shapes,
             fov_fill_buffer: None,
             fov_fill_vertex_count: 0,
             satellite,
@@ -211,11 +107,26 @@ impl Pipeline {
             cloud,
             atmosphere,
             clear_quad,
-            planet_vertices_count: 0,
             depth_texture: None,
             depth_size: (0, 0),
             show_clouds: true,
+            initialized: false,
         }
+    }
+
+    fn initialize_system(
+        &mut self,
+        device: &iced::wgpu::Device,
+        queue: &iced::wgpu::Queue,
+        system: &System,
+    ) {
+        if self.initialized {
+            return;
+        }
+
+        let planet_vertices = system.planet_triangles();
+        self.planet.set_vertices(device, queue, &planet_vertices);
+        self.initialized = true;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -225,16 +136,19 @@ impl Pipeline {
         queue: &wgpu::Queue,
         _bounds: &iced::Rectangle,
         viewport: &shader::Viewport,
-        model: &System,
+        system: &System,
         camera: &Camera,
-        elapsed: f32,
-        earth_rotation_angle: f32,
         satellite_mode: SatelliteRenderMode,
         show_clouds: bool,
     ) {
-        self.show_clouds = show_clouds;
         let width = viewport.physical_width();
         let height = viewport.physical_height();
+        self.show_clouds = show_clouds;
+
+        self.initialize_system(device, queue, system);
+
+        let elapsed = system.elapsed_seconds();
+        let earth_rotation_angle = system.earth_rotation() as f32;
 
         if self.depth_size != (width, height) {
             self.depth_size = (width, height);
@@ -253,70 +167,18 @@ impl Pipeline {
                 view_formats: &[],
             }));
         }
-        let planet_triangles = model.planet_triangles();
-        let buffer_size = bytemuck::cast_slice::<TextureVertex, u8>(planet_triangles).len() as u64;
-        self.vertices = device.create_buffer(&BufferDescriptor {
-            label: Some("Triangle buffer"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
 
-        let (day_of_year, hour) = model.day_hour();
-        let earth_spin = earth_rotation_angle;
+        let (day_of_year, hour) = system.day_hour();
 
         // Fill orbit trajectory points and ranges — convert to colored vertices.
-        let (orbit_points, orbit_ranges) = model.orbit_line_points(ORBIT_SAMPLES, elapsed);
-        let (feature_points, feature_ranges) = model.features_line_points(elapsed);
-
-        // Merge orbits + features into a single colored buffer.
-        {
-            use crate::gpu::pipelines::planet::vertex::ColoredVertex;
-            let mut all_verts: Vec<ColoredVertex> = Vec::new();
-            let mut all_ranges: Vec<(u32, u32)> = Vec::new();
-
-            // Orbits
-            let offset = all_verts.len() as u32;
-            for p in &orbit_points {
-                all_verts.push(ColoredVertex {
-                    position: *p,
-                    color: ORBIT_COLOR,
-                });
-            }
-            for (start, len) in &orbit_ranges {
-                all_ranges.push((start + offset, *len));
-            }
-
-            // Features (FOV circles, rectangles)
-            let offset = all_verts.len() as u32;
-            for p in &feature_points {
-                all_verts.push(ColoredVertex {
-                    position: *p,
-                    color: FEATURE_COLOR,
-                });
-            }
-            for (start, len) in &feature_ranges {
-                all_ranges.push((start + offset, *len));
-            }
-
-            self.trajectory
-                .set_data(device, queue, all_verts, all_ranges);
-        }
+        self.shapes
+            .set_orbit_feature_data(device, queue, system, elapsed);
 
         // Colored shapes (frames, orbital elements, labels, markers)
-        let (colored_verts, colored_ranges) = model.colored_shape_points();
-        {
-            use crate::gpu::pipelines::planet::vertex::ColoredVertex;
-            let cv: Vec<ColoredVertex> = colored_verts
-                .iter()
-                .map(|v| ColoredVertex {
-                    position: [v[0], v[1], v[2]],
-                    color: [v[3], v[4], v[5]],
-                })
-                .collect();
-            self.trajectory
-                .set_shapes_data(device, queue, cv, colored_ranges);
-        }
+        self.shapes.set_colored_shape_data(device, queue, system);
+
+        self.star_catalog
+            .prepare(queue, camera, width as f32, height as f32);
 
         // Sun direction as directional light. Use astronomical position relative to Earth.
         let sun_inertial = Astral::sun_inertial_position(day_of_year, hour);
@@ -330,19 +192,20 @@ impl Pipeline {
         // Sun direction is always ECI. Camera behavior handles frame motion.
         let sun_dir = sun_dir_eci;
 
-        self.star_catalog
-            .prepare(queue, camera, width as f32, height as f32);
-
-        let uniforms = Uniforms::new(camera, [sun_dir.x, sun_dir.y, sun_dir.z], earth_spin);
+        let uniforms = Uniforms::new(
+            camera,
+            [sun_dir.x, sun_dir.y, sun_dir.z],
+            earth_rotation_angle,
+        );
 
         // Satellites
         self.satellite.set_render_mode(satellite_mode);
         self.satellite
-            .prepare(queue, camera, model, elapsed, sun_dir);
+            .prepare(queue, camera, system, elapsed, sun_dir);
 
         // Stations
         self.station
-            .prepare(queue, camera, model, sun_dir, earth_spin);
+            .prepare(queue, camera, system, sun_dir, earth_rotation_angle);
 
         // Moon
         let moon_pos = Astral::moon_inertial_position(day_of_year, hour);
@@ -351,14 +214,15 @@ impl Pipeline {
         // Clouds
         if self.show_clouds {
             self.cloud
-                .prepare(queue, camera, sun_dir, earth_spin, elapsed);
+                .prepare(queue, camera, sun_dir, earth_rotation_angle, elapsed);
         }
 
         // Atmosphere
-        self.atmosphere.prepare(queue, camera, sun_dir, earth_spin);
+        self.atmosphere
+            .prepare(queue, camera, sun_dir, earth_rotation_angle);
 
         // Filled FOV triangles — convert to colored vertices
-        let fov_tris = model.satellite_fov_filled_triangles(elapsed);
+        let fov_tris = system.satellite_fov_filled_triangles(elapsed);
         if !fov_tris.is_empty() {
             use crate::gpu::pipelines::planet::vertex::ColoredVertex;
             let colored_fov: Vec<ColoredVertex> = fov_tris
@@ -383,8 +247,6 @@ impl Pipeline {
             self.fov_fill_vertex_count = 0;
         }
 
-        queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(planet_triangles));
-        self.planet_vertices_count = planet_triangles.len() as u32;
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
     }
 
@@ -444,19 +306,15 @@ impl Pipeline {
 
         self.star_catalog.render(&mut render_pass);
 
-        render_pass.set_pipeline(&self.pipeline);
-        render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
-        render_pass.set_bind_group(1, &self.uniforms_bind_group, &[]);
-
-        render_pass.set_vertex_buffer(0, self.vertices.slice(..));
-        render_pass.draw(0..self.planet_vertices_count, 0..1);
+        self.planet
+            .render(&mut render_pass, &self.uniforms_bind_group);
 
         // Orbits + features (colored)
-        self.trajectory
+        self.shapes
             .render(&mut render_pass, &self.uniforms_bind_group);
 
         // Colored shapes (frames, orbital elements, labels)
-        self.trajectory
+        self.shapes
             .render_shapes(&mut render_pass, &self.uniforms_bind_group);
 
         // Clouds rendered after planet, before other objects
@@ -470,7 +328,7 @@ impl Pipeline {
 
         // Render filled FOV surfaces using the colored line pipeline
         if let Some(fov_buffer) = &self.fov_fill_buffer {
-            self.trajectory.render_with_buffer(
+            self.shapes.render_with_buffer(
                 &mut render_pass,
                 &self.uniforms_bind_group,
                 fov_buffer,
@@ -483,7 +341,7 @@ impl Pipeline {
     }
 }
 
-impl shader::Pipeline for Pipeline {
+impl shader::Pipeline for Pipelines {
     fn new(
         device: &iced::wgpu::Device,
         queue: &iced::wgpu::Queue,

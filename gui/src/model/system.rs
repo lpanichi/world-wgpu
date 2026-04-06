@@ -81,15 +81,11 @@ impl System {
             .to_string()
     }
 
-    pub fn planet_triangles(&self) -> &[TextureVertex] {
+    pub fn planet_triangles(&self) -> &Vec<TextureVertex> {
         &self.planet_triangles
     }
 
-    pub fn orbit_line_points(
-        &self,
-        steps_per_orbit: usize,
-        elapsed: f32,
-    ) -> (Vec<[f32; 3]>, Vec<(u32, u32)>) {
+    pub fn orbit_line_points(&self, steps_per_orbit: usize) -> (Vec<[f32; 3]>, Vec<(u32, u32)>) {
         let mut points = Vec::new();
         let mut ranges = Vec::new();
         for orbit in &self.orbits {
@@ -97,7 +93,7 @@ impl System {
                 continue;
             }
             let start = points.len() as u32;
-            let mut sampled = orbit.sampled_points(steps_per_orbit, elapsed);
+            let mut sampled = orbit.generate_orbit_positions(steps_per_orbit);
             if !sampled.is_empty() {
                 // Close the loop by repeating first point at end of line strip.
                 sampled.push(sampled[0]);
