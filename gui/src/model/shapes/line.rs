@@ -1,4 +1,4 @@
-use super::{COLOR_ORANGE, Shapes, colored_vert};
+use super::{COLOR_ORANGE, Shapes, colored_vert, merge_text_mesh, text_vertices};
 use crate::model::{FrameMode, system::EARTH_RADIUS_KM};
 use nalgebra::Vector3;
 use std::sync::atomic::Ordering;
@@ -61,6 +61,39 @@ impl Shapes {
         self.add_line(frame_mode, [0.0, 0.0, 0.0], end, "Sun direction");
     }
 
+    /// Add a line from Earth center toward a specific star/celestial direction (unit direction scaled).
+    pub fn add_star_line(
+        &mut self,
+        frame_mode: FrameMode,
+        star_dir: [f32; 3],
+        length: f32,
+        label: impl Into<String>,
+    ) {
+        let end = [
+            star_dir[0] * length,
+            star_dir[1] * length,
+            star_dir[2] * length,
+        ];
+        self.add_line(frame_mode, [0.0, 0.0, 0.0], end, label);
+    }
+
+    /// Add a colored line from Earth center toward a specific star/celestial direction.
+    pub fn add_colored_star_line(
+        &mut self,
+        frame_mode: FrameMode,
+        star_dir: [f32; 3],
+        length: f32,
+        color: [f32; 3],
+        label: impl Into<String>,
+    ) {
+        let end = [
+            star_dir[0] * length,
+            star_dir[1] * length,
+            star_dir[2] * length,
+        ];
+        self.add_colored_line(frame_mode, [0.0, 0.0, 0.0], end, color, label);
+    }
+
     /// Add a line from Earth center to a surface point at lat/lon, extended above the surface.
     pub fn add_surface_line(
         &mut self,
@@ -73,6 +106,21 @@ impl Shapes {
         let dir = Vector3::new(pos[0], pos[1], pos[2]).normalize();
         let end = dir * (EARTH_RADIUS_KM + extension);
         self.add_line(FrameMode::Ecef, [0.0, 0.0, 0.0], end.into(), label);
+    }
+
+    /// Add a colored line from Earth center to a surface point at lat/lon.
+    pub fn add_colored_surface_line(
+        &mut self,
+        lat_deg: f32,
+        lon_deg: f32,
+        extension: f32,
+        color: [f32; 3],
+        label: impl Into<String>,
+    ) {
+        let pos = super::lat_lon_to_ecef(lat_deg, lon_deg);
+        let dir = Vector3::new(pos[0], pos[1], pos[2]).normalize();
+        let end = dir * (EARTH_RADIUS_KM + extension);
+        self.add_colored_line(FrameMode::Ecef, [0.0, 0.0, 0.0], end.into(), color, label);
     }
 }
 
@@ -87,5 +135,25 @@ impl Line {
         verts.push(colored_vert(self.start, self.color, rotate_flag));
         verts.push(colored_vert(self.end, self.color, rotate_flag));
         ranges.push((start, 2));
+
+        if !self.label.is_empty() {
+            let start_v = Vector3::new(self.start[0], self.start[1], self.start[2]);
+            let end_v = Vector3::new(self.end[0], self.end[1], self.end[2]);
+            let len = (end_v - start_v).norm();
+            let dir = if len > 0.001 {
+                (end_v - start_v).normalize()
+            } else {
+                Vector3::new(0.0, 0.0, 1.0)
+            };
+
+            let tm = text_vertices::build_text(
+                end_v + dir * (len * 0.08),
+                dir,
+                len * 0.025,
+                &self.label,
+                self.color,
+            );
+            merge_text_mesh(verts, ranges, &tm, rotate_flag);
+        }
     }
 }

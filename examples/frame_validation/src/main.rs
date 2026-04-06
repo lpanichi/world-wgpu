@@ -79,8 +79,31 @@ impl FrameValidationSimulation {
         // ECI frame (fixed in inertial space)
         core_sim.shapes.add_eci_frame(earth_radius * 2.5);
 
+        // Add directions to reference stars/points manually to ensure they match ECI axes X and Z
+        core_sim.shapes.add_colored_star_line(
+            gui::model::FrameMode::Eci,
+            [1.0, 0.0, 0.0],
+            earth_radius * 2.7,
+            [0.5, 0.8, 1.0],
+            "Vernal Equinox (+X ECI)",
+        );
+        core_sim.shapes.add_colored_star_line(
+            gui::model::FrameMode::Eci,
+            [0.0, 0.0, 1.0],
+            earth_radius * 2.7,
+            [0.5, 0.8, 1.0],
+            "North Celestial Pole (+Z ECI)",
+        );
+
+
         // ECEF frame (rotates dynamically with Earth each render frame)
         core_sim.shapes.add_ecef_frame(earth_radius * 2.0);
+
+        // Sub-points to validate ECEF base vectors
+        core_sim.shapes.add_colored_surface_line(0.0, 0.0, earth_radius * 1.5, [0.5, 0.8, 1.0], "Prime Meridian (+X ECEF)");
+        core_sim.shapes.add_colored_surface_line(0.0, 90.0, earth_radius * 1.5, [0.5, 0.8, 1.0], "90° East (+Y ECEF)");
+        core_sim.shapes.add_colored_surface_line(90.0, 0.0, earth_radius * 1.5, [0.5, 0.8, 1.0], "North Pole (+Z ECEF)");
+
 
         // Sun direction
         core_sim.shapes.add_sun_line(
