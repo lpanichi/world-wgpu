@@ -14,6 +14,7 @@ use crate::gpu::pipelines::planet::{
     cloud::CloudPipeline,
     moon::MoonPipeline,
     planet::PlanetPipeline,
+    resolve_msaa::ResolveMsaaPipeline,
     shapes::{FEATURE_COLOR, ShapesPipeline},
     star_catalog::StarCatalogPipeline,
     uniforms::Uniforms,
@@ -40,6 +41,7 @@ pub struct Pipelines {
     cloud: CloudPipeline,
     atmosphere: AtmospherePipeline,
     clear_quad: ClearQuadPipeline,
+    resolve_msaa: ResolveMsaaPipeline,
     format: wgpu::TextureFormat,
     msaa_color_texture: Option<wgpu::Texture>,
     depth_texture: Option<wgpu::Texture>,
@@ -96,6 +98,7 @@ impl Pipelines {
         let cloud = CloudPipeline::new(device, queue, format);
         let atmosphere = AtmospherePipeline::new(device, queue, format);
         let clear_quad = ClearQuadPipeline::new(device, format);
+        let resolve_msaa = ResolveMsaaPipeline::new(device, format);
 
         Pipelines {
             uniforms,
@@ -111,6 +114,7 @@ impl Pipelines {
             cloud,
             atmosphere,
             clear_quad,
+            resolve_msaa,
             format,
             msaa_color_texture: None,
             depth_texture: None,
@@ -158,7 +162,7 @@ impl Pipelines {
 
         if self.depth_size != (width, height) {
             self.depth_size = (width, height);
-            self.msaa_color_texture = Some(device.create_texture(&wgpu::TextureDescriptor {
+            let msaa_texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("MSAA Color Texture"),
                 size: wgpu::Extent3d {
                     width,
@@ -169,9 +173,13 @@ impl Pipelines {
                 sample_count: MSAA_SAMPLE_COUNT,
                 dimension: wgpu::TextureDimension::D2,
                 format: self.format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
-            }));
+            });
+            let msaa_view = msaa_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            self.resolve_msaa.set_source(device, &msaa_view);
+            self.msaa_color_texture = Some(msaa_texture);
             self.depth_texture = Some(device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Depth Texture"),
                 size: wgpu::Extent3d {
@@ -277,6 +285,10 @@ impl Pipelines {
         target: &wgpu::TextureView,
         clip_bounds: &Rectangle<u32>,
     ) {
+        if clip_bounds.width == 0 || clip_bounds.height == 0 {
+            return;
+        }
+
         let depth_view = self
             .depth_texture
             .as_ref()
@@ -287,31 +299,106 @@ impl Pipelines {
             .as_ref()
             .map(|tex| tex.create_view(&wgpu::TextureViewDescriptor::default()));
 
-        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("Render Pass"),
+        let Some(msaa_view) = msaa_view.as_ref() else {
+            return;
+        };
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("Scene MSAA Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: msaa_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: depth_view.as_ref().map(|view| {
+                    wgpu::RenderPassDepthStencilAttachment {
+                        view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            render_pass.set_viewport(
+                clip_bounds.x as f32,
+                clip_bounds.y as f32,
+                clip_bounds.width as f32,
+                clip_bounds.height as f32,
+                0.0,
+                1.0,
+            );
+            render_pass.set_scissor_rect(
+                clip_bounds.x,
+                clip_bounds.y,
+                clip_bounds.width,
+                clip_bounds.height,
+            );
+
+            // Manual clear within scissor — only affects the shader viewport area,
+            // preserving iced container backgrounds outside it.
+            self.clear_quad.render(&mut render_pass);
+
+            self.star_catalog.render(&mut render_pass);
+
+            self.planet
+                .render(&mut render_pass, &self.uniforms_bind_group);
+
+            // Orbits + features (colored)
+            self.shapes
+                .render(&mut render_pass, &self.uniforms_bind_group);
+
+            // Colored shapes (frames, orbital elements, labels)
+            self.shapes
+                .render_shapes(&mut render_pass, &self.uniforms_bind_group);
+
+            // Clouds rendered after planet, before other objects
+            if self.show_clouds {
+                self.cloud.render(&mut render_pass);
+            }
+
+            self.satellite.render(&mut render_pass);
+            self.station.render(&mut render_pass);
+            self.moon.render(&mut render_pass);
+
+            // Render filled FOV surfaces using the colored line pipeline
+            if let Some(fov_buffer) = &self.fov_fill_buffer {
+                self.shapes.render_with_buffer(
+                    &mut render_pass,
+                    &self.uniforms_bind_group,
+                    fov_buffer,
+                    &[(0, self.fov_fill_vertex_count)],
+                );
+            }
+
+            // Atmosphere rendered last (transparent, alpha-blended)
+            self.atmosphere.render(&mut render_pass);
+        }
+
+        let mut resolve_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("MSAA Resolve Composite Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: msaa_view.as_ref().unwrap_or(target),
+                view: target,
                 depth_slice: None,
-                resolve_target: msaa_view.as_ref().map(|_| target),
+                resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: depth_view.as_ref().map(|view| {
-                wgpu::RenderPassDepthStencilAttachment {
-                    view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }
-            }),
+            depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
         });
-        render_pass.set_viewport(
+        resolve_pass.set_viewport(
             clip_bounds.x as f32,
             clip_bounds.y as f32,
             clip_bounds.width as f32,
@@ -319,51 +406,13 @@ impl Pipelines {
             0.0,
             1.0,
         );
-        render_pass.set_scissor_rect(
+        resolve_pass.set_scissor_rect(
             clip_bounds.x,
             clip_bounds.y,
             clip_bounds.width,
             clip_bounds.height,
         );
-
-        // Manual clear within scissor — only affects the shader viewport area,
-        // preserving iced container backgrounds outside it.
-        self.clear_quad.render(&mut render_pass);
-
-        self.star_catalog.render(&mut render_pass);
-
-        self.planet
-            .render(&mut render_pass, &self.uniforms_bind_group);
-
-        // Orbits + features (colored)
-        self.shapes
-            .render(&mut render_pass, &self.uniforms_bind_group);
-
-        // Colored shapes (frames, orbital elements, labels)
-        self.shapes
-            .render_shapes(&mut render_pass, &self.uniforms_bind_group);
-
-        // Clouds rendered after planet, before other objects
-        if self.show_clouds {
-            self.cloud.render(&mut render_pass);
-        }
-
-        self.satellite.render(&mut render_pass);
-        self.station.render(&mut render_pass);
-        self.moon.render(&mut render_pass);
-
-        // Render filled FOV surfaces using the colored line pipeline
-        if let Some(fov_buffer) = &self.fov_fill_buffer {
-            self.shapes.render_with_buffer(
-                &mut render_pass,
-                &self.uniforms_bind_group,
-                fov_buffer,
-                &[(0, self.fov_fill_vertex_count)],
-            );
-        }
-
-        // Atmosphere rendered last (transparent, alpha-blended)
-        self.atmosphere.render(&mut render_pass);
+        self.resolve_msaa.render(&mut resolve_pass);
     }
 }
 

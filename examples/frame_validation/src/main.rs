@@ -9,7 +9,7 @@
 ///
 /// The simulation runs (not paused) so you can watch the ECEF frame rotate
 /// relative to ECI while ground stations track with the Earth.
-use chrono::{TimeZone, Utc};
+use chrono::{TimeDelta, TimeZone, Utc};
 use gui::astro::Astral;
 use gui::gpu::pipelines::planet::{camera::Camera, satellite::SatelliteRenderMode};
 use gui::model::FrameMode;
@@ -148,6 +148,8 @@ fn update(sim: &mut FrameValidationSimulation, message: Message) {
     match message {
         Message::Tick => {
             if !sim.program.paused {
+                // Use a fixed wall-clock step so high time scales remain visually stable.
+                sim.program.system.last_tick_time = Utc::now() - TimeDelta::milliseconds(16);
                 sim.program.tick();
             }
         }

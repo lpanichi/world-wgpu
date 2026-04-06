@@ -65,11 +65,11 @@ pub fn text_frame(normal: Vector3<f32>, char_size: f32) -> (Vector3<f32>, Vector
         world_up
     };
 
-    // u = horizontal (right), perpendicular to dir and tangent
-    let u = dir.cross(&tangent).normalize() * char_size;
+    // u = horizontal (right), perpendicular to tangent and dir.
+    let u = tangent.cross(&dir).normalize() * char_size;
     // v = up, perpendicular to dir and u.
-    // Using u×dir (not dir×u) so +v points toward world-up.
-    let v = u.cross(&dir).normalize() * char_size;
+    // Using dir×u so +v points toward world-up.
+    let v = dir.cross(&u).normalize() * char_size;
     (u, v)
 }
 
@@ -238,20 +238,68 @@ fn emit_upper_a(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_upper_b(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.3, -0.5), p(-0.3, 0.5), p(0.2, 0.5), p(0.3, 0.35), p(0.2, 0.05), p(-0.3, 0.0)], c);
-    strip(mesh, &[p(-0.3, 0.0), p(0.2, -0.05), p(0.3, -0.35), p(0.2, -0.5), p(-0.3, -0.5)], c);
+    strip(
+        mesh,
+        &[
+            p(-0.3, -0.5),
+            p(-0.3, 0.5),
+            p(0.2, 0.5),
+            p(0.3, 0.35),
+            p(0.2, 0.05),
+            p(-0.3, 0.0),
+        ],
+        c,
+    );
+    strip(
+        mesh,
+        &[
+            p(-0.3, 0.0),
+            p(0.2, -0.05),
+            p(0.3, -0.35),
+            p(0.2, -0.5),
+            p(-0.3, -0.5),
+        ],
+        c,
+    );
 }
 
 fn emit_upper_c(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(0.3, 0.4), p(0.0, 0.5), p(-0.3, 0.3), p(-0.3, -0.3), p(0.0, -0.5), p(0.3, -0.4)], c);
+    strip(
+        mesh,
+        &[
+            p(0.3, 0.4),
+            p(0.0, 0.5),
+            p(-0.3, 0.3),
+            p(-0.3, -0.3),
+            p(0.0, -0.5),
+            p(0.3, -0.4),
+        ],
+        c,
+    );
 }
 
 fn emit_upper_d(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.3, -0.5), p(-0.3, 0.5), p(0.1, 0.5), p(0.3, 0.3), p(0.3, -0.3), p(0.1, -0.5), p(-0.3, -0.5)], c);
+    strip(
+        mesh,
+        &[
+            p(-0.3, -0.5),
+            p(-0.3, 0.5),
+            p(0.1, 0.5),
+            p(0.3, 0.3),
+            p(0.3, -0.3),
+            p(0.1, -0.5),
+            p(-0.3, -0.5),
+        ],
+        c,
+    );
 }
 
 fn emit_upper_e(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(0.3, 0.5), p(-0.3, 0.5), p(-0.3, -0.5), p(0.3, -0.5)], c);
+    strip(
+        mesh,
+        &[p(0.3, 0.5), p(-0.3, 0.5), p(-0.3, -0.5), p(0.3, -0.5)],
+        c,
+    );
     seg(mesh, p(-0.3, 0.0), p(0.2, 0.0), c);
 }
 
@@ -261,7 +309,20 @@ fn emit_upper_f(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_upper_g(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(0.3, 0.4), p(0.0, 0.5), p(-0.3, 0.3), p(-0.3, -0.3), p(0.0, -0.5), p(0.3, -0.3), p(0.3, 0.0), p(0.1, 0.0)], c);
+    strip(
+        mesh,
+        &[
+            p(0.3, 0.4),
+            p(0.0, 0.5),
+            p(-0.3, 0.3),
+            p(-0.3, -0.3),
+            p(0.0, -0.5),
+            p(0.3, -0.3),
+            p(0.3, 0.0),
+            p(0.1, 0.0),
+        ],
+        c,
+    );
 }
 
 fn emit_upper_h(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
@@ -277,7 +338,18 @@ fn emit_upper_i(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_upper_j(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.1, 0.5), p(0.3, 0.5), p(0.3, -0.3), p(0.1, -0.5), p(-0.2, -0.5), p(-0.3, -0.3)], c);
+    strip(
+        mesh,
+        &[
+            p(-0.1, 0.5),
+            p(0.3, 0.5),
+            p(0.3, -0.3),
+            p(0.1, -0.5),
+            p(-0.2, -0.5),
+            p(-0.3, -0.3),
+        ],
+        c,
+    );
 }
 
 fn emit_upper_k(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
@@ -291,11 +363,25 @@ fn emit_upper_l(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_upper_m(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.4, -0.5), p(-0.4, 0.5), p(0.0, 0.1), p(0.4, 0.5), p(0.4, -0.5)], c);
+    strip(
+        mesh,
+        &[
+            p(-0.4, -0.5),
+            p(-0.4, 0.5),
+            p(0.0, 0.1),
+            p(0.4, 0.5),
+            p(0.4, -0.5),
+        ],
+        c,
+    );
 }
 
 fn emit_upper_n(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.4, -0.5), p(-0.4, 0.5), p(0.4, -0.5), p(0.4, 0.5)], c);
+    strip(
+        mesh,
+        &[p(-0.4, -0.5), p(-0.4, 0.5), p(0.4, -0.5), p(0.4, 0.5)],
+        c,
+    );
 }
 
 fn emit_upper_o(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
@@ -309,7 +395,17 @@ fn emit_upper_o(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_upper_p(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.3, -0.5), p(-0.3, 0.5), p(0.3, 0.5), p(0.3, 0.1), p(-0.3, 0.0)], c);
+    strip(
+        mesh,
+        &[
+            p(-0.3, -0.5),
+            p(-0.3, 0.5),
+            p(0.3, 0.5),
+            p(0.3, 0.1),
+            p(-0.3, 0.0),
+        ],
+        c,
+    );
 }
 
 fn emit_upper_q(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
@@ -318,12 +414,37 @@ fn emit_upper_q(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_upper_r(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.3, -0.5), p(-0.3, 0.5), p(0.3, 0.5), p(0.3, 0.1), p(-0.3, 0.0)], c);
+    strip(
+        mesh,
+        &[
+            p(-0.3, -0.5),
+            p(-0.3, 0.5),
+            p(0.3, 0.5),
+            p(0.3, 0.1),
+            p(-0.3, 0.0),
+        ],
+        c,
+    );
     seg(mesh, p(0.0, 0.0), p(0.3, -0.5), c);
 }
 
 fn emit_upper_s(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(0.3, 0.4), p(0.1, 0.5), p(-0.2, 0.5), p(-0.3, 0.35), p(-0.3, 0.1), p(0.3, -0.1), p(0.3, -0.35), p(0.2, -0.5), p(-0.1, -0.5), p(-0.3, -0.4)], c);
+    strip(
+        mesh,
+        &[
+            p(0.3, 0.4),
+            p(0.1, 0.5),
+            p(-0.2, 0.5),
+            p(-0.3, 0.35),
+            p(-0.3, 0.1),
+            p(0.3, -0.1),
+            p(0.3, -0.35),
+            p(0.2, -0.5),
+            p(-0.1, -0.5),
+            p(-0.3, -0.4),
+        ],
+        c,
+    );
 }
 
 fn emit_upper_t(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
@@ -332,7 +453,18 @@ fn emit_upper_t(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_upper_u(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.3, 0.5), p(-0.3, -0.3), p(-0.1, -0.5), p(0.1, -0.5), p(0.3, -0.3), p(0.3, 0.5)], c);
+    strip(
+        mesh,
+        &[
+            p(-0.3, 0.5),
+            p(-0.3, -0.3),
+            p(-0.1, -0.5),
+            p(0.1, -0.5),
+            p(0.3, -0.3),
+            p(0.3, 0.5),
+        ],
+        c,
+    );
 }
 
 fn emit_upper_v(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
@@ -340,7 +472,17 @@ fn emit_upper_v(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_upper_w(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.4, 0.5), p(-0.2, -0.5), p(0.0, 0.1), p(0.2, -0.5), p(0.4, 0.5)], c);
+    strip(
+        mesh,
+        &[
+            p(-0.4, 0.5),
+            p(-0.2, -0.5),
+            p(0.0, 0.1),
+            p(0.2, -0.5),
+            p(0.4, 0.5),
+        ],
+        c,
+    );
 }
 
 fn emit_upper_x(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
@@ -356,7 +498,11 @@ fn emit_upper_y(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_upper_z(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.3, 0.5), p(0.3, 0.5), p(-0.3, -0.5), p(0.3, -0.5)], c);
+    strip(
+        mesh,
+        &[p(-0.3, 0.5), p(0.3, 0.5), p(-0.3, -0.5), p(0.3, -0.5)],
+        c,
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -365,41 +511,122 @@ fn emit_upper_z(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 
 fn emit_lower_a(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
     // Rounded body + right stem
-    strip(mesh, &[p(0.3, 0.2), p(0.0, 0.3), p(-0.25, 0.15), p(-0.25, -0.15), p(0.0, -0.3), p(0.3, -0.2)], c);
+    strip(
+        mesh,
+        &[
+            p(0.3, 0.2),
+            p(0.0, 0.3),
+            p(-0.25, 0.15),
+            p(-0.25, -0.15),
+            p(0.0, -0.3),
+            p(0.3, -0.2),
+        ],
+        c,
+    );
     seg(mesh, p(0.3, 0.3), p(0.3, -0.3), c);
 }
 
 fn emit_lower_b(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
     seg(mesh, p(-0.3, 0.5), p(-0.3, -0.3), c);
-    strip(mesh, &[p(-0.3, 0.2), p(0.0, 0.3), p(0.25, 0.15), p(0.25, -0.15), p(0.0, -0.3), p(-0.3, -0.2)], c);
+    strip(
+        mesh,
+        &[
+            p(-0.3, 0.2),
+            p(0.0, 0.3),
+            p(0.25, 0.15),
+            p(0.25, -0.15),
+            p(0.0, -0.3),
+            p(-0.3, -0.2),
+        ],
+        c,
+    );
 }
 
 fn emit_lower_c(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(0.25, 0.2), p(0.0, 0.3), p(-0.25, 0.15), p(-0.25, -0.15), p(0.0, -0.3), p(0.25, -0.2)], c);
+    strip(
+        mesh,
+        &[
+            p(0.25, 0.2),
+            p(0.0, 0.3),
+            p(-0.25, 0.15),
+            p(-0.25, -0.15),
+            p(0.0, -0.3),
+            p(0.25, -0.2),
+        ],
+        c,
+    );
 }
 
 fn emit_lower_d(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
     seg(mesh, p(0.3, 0.5), p(0.3, -0.3), c);
-    strip(mesh, &[p(0.3, 0.2), p(0.0, 0.3), p(-0.25, 0.15), p(-0.25, -0.15), p(0.0, -0.3), p(0.3, -0.2)], c);
+    strip(
+        mesh,
+        &[
+            p(0.3, 0.2),
+            p(0.0, 0.3),
+            p(-0.25, 0.15),
+            p(-0.25, -0.15),
+            p(0.0, -0.3),
+            p(0.3, -0.2),
+        ],
+        c,
+    );
 }
 
 fn emit_lower_e(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(0.25, 0.0), p(-0.25, 0.0), p(-0.25, 0.2), p(0.0, 0.3), p(0.25, 0.2), p(0.25, 0.0), p(0.25, -0.2), p(0.0, -0.3), p(-0.25, -0.2)], c);
+    strip(
+        mesh,
+        &[
+            p(0.25, 0.0),
+            p(-0.25, 0.0),
+            p(-0.25, 0.2),
+            p(0.0, 0.3),
+            p(0.25, 0.2),
+            p(0.25, 0.0),
+            p(0.25, -0.2),
+            p(0.0, -0.3),
+            p(-0.25, -0.2),
+        ],
+        c,
+    );
 }
 
 fn emit_lower_f(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(0.2, 0.5), p(0.0, 0.5), p(-0.1, 0.35), p(-0.1, -0.3)], c);
+    strip(
+        mesh,
+        &[p(0.2, 0.5), p(0.0, 0.5), p(-0.1, 0.35), p(-0.1, -0.3)],
+        c,
+    );
     seg(mesh, p(-0.25, 0.2), p(0.15, 0.2), c);
 }
 
 fn emit_lower_g(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(0.3, 0.2), p(0.0, 0.3), p(-0.25, 0.15), p(-0.25, -0.15), p(0.0, -0.3), p(0.3, -0.2)], c);
-    strip(mesh, &[p(0.3, 0.3), p(0.3, -0.4), p(0.1, -0.5), p(-0.2, -0.5)], c);
+    strip(
+        mesh,
+        &[
+            p(0.3, 0.2),
+            p(0.0, 0.3),
+            p(-0.25, 0.15),
+            p(-0.25, -0.15),
+            p(0.0, -0.3),
+            p(0.3, -0.2),
+        ],
+        c,
+    );
+    strip(
+        mesh,
+        &[p(0.3, 0.3), p(0.3, -0.4), p(0.1, -0.5), p(-0.2, -0.5)],
+        c,
+    );
 }
 
 fn emit_lower_h(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
     seg(mesh, p(-0.3, 0.5), p(-0.3, -0.3), c);
-    strip(mesh, &[p(-0.3, 0.15), p(0.0, 0.3), p(0.25, 0.15), p(0.25, -0.3)], c);
+    strip(
+        mesh,
+        &[p(-0.3, 0.15), p(0.0, 0.3), p(0.25, 0.15), p(0.25, -0.3)],
+        c,
+    );
 }
 
 fn emit_lower_i(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
@@ -408,7 +635,11 @@ fn emit_lower_i(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_lower_j(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(0.1, 0.2), p(0.1, -0.4), p(-0.05, -0.5), p(-0.2, -0.45)], c);
+    strip(
+        mesh,
+        &[p(0.1, 0.2), p(0.1, -0.4), p(-0.05, -0.5), p(-0.2, -0.45)],
+        c,
+    );
     seg(mesh, p(0.05, 0.4), p(0.15, 0.4), c); // dot
 }
 
@@ -424,13 +655,25 @@ fn emit_lower_l(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 
 fn emit_lower_m(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
     seg(mesh, p(-0.4, 0.3), p(-0.4, -0.3), c);
-    strip(mesh, &[p(-0.4, 0.15), p(-0.15, 0.3), p(0.0, 0.15), p(0.0, -0.3)], c);
-    strip(mesh, &[p(0.0, 0.15), p(0.15, 0.3), p(0.35, 0.15), p(0.35, -0.3)], c);
+    strip(
+        mesh,
+        &[p(-0.4, 0.15), p(-0.15, 0.3), p(0.0, 0.15), p(0.0, -0.3)],
+        c,
+    );
+    strip(
+        mesh,
+        &[p(0.0, 0.15), p(0.15, 0.3), p(0.35, 0.15), p(0.35, -0.3)],
+        c,
+    );
 }
 
 fn emit_lower_n(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
     seg(mesh, p(-0.25, 0.3), p(-0.25, -0.3), c);
-    strip(mesh, &[p(-0.25, 0.15), p(0.0, 0.3), p(0.25, 0.15), p(0.25, -0.3)], c);
+    strip(
+        mesh,
+        &[p(-0.25, 0.15), p(0.0, 0.3), p(0.25, 0.15), p(0.25, -0.3)],
+        c,
+    );
 }
 
 fn emit_lower_o(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
@@ -445,12 +688,34 @@ fn emit_lower_o(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 
 fn emit_lower_p(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
     seg(mesh, p(-0.3, 0.3), p(-0.3, -0.5), c);
-    strip(mesh, &[p(-0.3, 0.2), p(0.0, 0.3), p(0.25, 0.15), p(0.25, -0.15), p(0.0, -0.3), p(-0.3, -0.2)], c);
+    strip(
+        mesh,
+        &[
+            p(-0.3, 0.2),
+            p(0.0, 0.3),
+            p(0.25, 0.15),
+            p(0.25, -0.15),
+            p(0.0, -0.3),
+            p(-0.3, -0.2),
+        ],
+        c,
+    );
 }
 
 fn emit_lower_q(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
     seg(mesh, p(0.3, 0.3), p(0.3, -0.5), c);
-    strip(mesh, &[p(0.3, 0.2), p(0.0, 0.3), p(-0.25, 0.15), p(-0.25, -0.15), p(0.0, -0.3), p(0.3, -0.2)], c);
+    strip(
+        mesh,
+        &[
+            p(0.3, 0.2),
+            p(0.0, 0.3),
+            p(-0.25, 0.15),
+            p(-0.25, -0.15),
+            p(0.0, -0.3),
+            p(0.3, -0.2),
+        ],
+        c,
+    );
 }
 
 fn emit_lower_r(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
@@ -459,7 +724,18 @@ fn emit_lower_r(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_lower_s(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(0.2, 0.2), p(0.0, 0.3), p(-0.2, 0.15), p(0.2, -0.15), p(0.0, -0.3), p(-0.2, -0.2)], c);
+    strip(
+        mesh,
+        &[
+            p(0.2, 0.2),
+            p(0.0, 0.3),
+            p(-0.2, 0.15),
+            p(0.2, -0.15),
+            p(0.0, -0.3),
+            p(-0.2, -0.2),
+        ],
+        c,
+    );
 }
 
 fn emit_lower_t(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
@@ -468,7 +744,11 @@ fn emit_lower_t(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_lower_u(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.25, 0.3), p(-0.25, -0.15), p(0.0, -0.3), p(0.25, -0.15)], c);
+    strip(
+        mesh,
+        &[p(-0.25, 0.3), p(-0.25, -0.15), p(0.0, -0.3), p(0.25, -0.15)],
+        c,
+    );
     seg(mesh, p(0.25, 0.3), p(0.25, -0.3), c);
 }
 
@@ -477,7 +757,17 @@ fn emit_lower_v(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_lower_w(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.35, 0.3), p(-0.15, -0.3), p(0.0, 0.05), p(0.15, -0.3), p(0.35, 0.3)], c);
+    strip(
+        mesh,
+        &[
+            p(-0.35, 0.3),
+            p(-0.15, -0.3),
+            p(0.0, 0.05),
+            p(0.15, -0.3),
+            p(0.35, 0.3),
+        ],
+        c,
+    );
 }
 
 fn emit_lower_x(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
@@ -491,7 +781,11 @@ fn emit_lower_y(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 }
 
 fn emit_lower_z(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.25, 0.3), p(0.25, 0.3), p(-0.25, -0.3), p(0.25, -0.3)], c);
+    strip(
+        mesh,
+        &[p(-0.25, 0.3), p(0.25, 0.3), p(-0.25, -0.3), p(0.25, -0.3)],
+        c,
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -500,25 +794,93 @@ fn emit_lower_z(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32;
 
 fn emit_digit(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], ch: char, c: [f32; 3]) {
     match ch {
-        '0' => strip(mesh, &[p(-0.3, -0.5), p(0.3, -0.5), p(0.3, 0.5), p(-0.3, 0.5), p(-0.3, -0.5)], c),
+        '0' => strip(
+            mesh,
+            &[
+                p(-0.3, -0.5),
+                p(0.3, -0.5),
+                p(0.3, 0.5),
+                p(-0.3, 0.5),
+                p(-0.3, -0.5),
+            ],
+            c,
+        ),
         '1' => seg(mesh, p(0.0, 0.5), p(0.0, -0.5), c),
-        '2' => strip(mesh, &[p(-0.3, 0.5), p(0.3, 0.5), p(0.3, 0.0), p(-0.3, 0.0), p(-0.3, -0.5), p(0.3, -0.5)], c),
+        '2' => strip(
+            mesh,
+            &[
+                p(-0.3, 0.5),
+                p(0.3, 0.5),
+                p(0.3, 0.0),
+                p(-0.3, 0.0),
+                p(-0.3, -0.5),
+                p(0.3, -0.5),
+            ],
+            c,
+        ),
         '3' => {
-            strip(mesh, &[p(-0.3, 0.5), p(0.3, 0.5), p(0.3, 0.0), p(-0.3, 0.0)], c);
+            strip(
+                mesh,
+                &[p(-0.3, 0.5), p(0.3, 0.5), p(0.3, 0.0), p(-0.3, 0.0)],
+                c,
+            );
             strip(mesh, &[p(0.3, 0.0), p(0.3, -0.5), p(-0.3, -0.5)], c);
         }
         '4' => {
             strip(mesh, &[p(-0.3, 0.5), p(-0.3, 0.0), p(0.3, 0.0)], c);
             seg(mesh, p(0.3, 0.5), p(0.3, -0.5), c);
         }
-        '5' => strip(mesh, &[p(0.3, 0.5), p(-0.3, 0.5), p(-0.3, 0.0), p(0.3, 0.0), p(0.3, -0.5), p(-0.3, -0.5)], c),
-        '6' => strip(mesh, &[p(0.3, 0.5), p(-0.3, 0.5), p(-0.3, -0.5), p(0.3, -0.5), p(0.3, 0.0), p(-0.3, 0.0)], c),
+        '5' => strip(
+            mesh,
+            &[
+                p(0.3, 0.5),
+                p(-0.3, 0.5),
+                p(-0.3, 0.0),
+                p(0.3, 0.0),
+                p(0.3, -0.5),
+                p(-0.3, -0.5),
+            ],
+            c,
+        ),
+        '6' => strip(
+            mesh,
+            &[
+                p(0.3, 0.5),
+                p(-0.3, 0.5),
+                p(-0.3, -0.5),
+                p(0.3, -0.5),
+                p(0.3, 0.0),
+                p(-0.3, 0.0),
+            ],
+            c,
+        ),
         '7' => strip(mesh, &[p(-0.3, 0.5), p(0.3, 0.5), p(0.0, -0.5)], c),
         '8' => {
-            strip(mesh, &[p(-0.3, -0.5), p(0.3, -0.5), p(0.3, 0.5), p(-0.3, 0.5), p(-0.3, -0.5)], c);
+            strip(
+                mesh,
+                &[
+                    p(-0.3, -0.5),
+                    p(0.3, -0.5),
+                    p(0.3, 0.5),
+                    p(-0.3, 0.5),
+                    p(-0.3, -0.5),
+                ],
+                c,
+            );
             seg(mesh, p(-0.3, 0.0), p(0.3, 0.0), c);
         }
-        '9' => strip(mesh, &[p(0.3, 0.0), p(-0.3, 0.0), p(-0.3, 0.5), p(0.3, 0.5), p(0.3, -0.5), p(-0.3, -0.5)], c),
+        '9' => strip(
+            mesh,
+            &[
+                p(0.3, 0.0),
+                p(-0.3, 0.0),
+                p(-0.3, 0.5),
+                p(0.3, 0.5),
+                p(0.3, -0.5),
+                p(-0.3, -0.5),
+            ],
+            c,
+        ),
         _ => {}
     }
 }
@@ -580,7 +942,17 @@ fn emit_equals(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 
 }
 
 fn emit_unknown_box(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [f32; 3]) {
-    strip(mesh, &[p(-0.3, -0.4), p(0.3, -0.4), p(0.3, 0.4), p(-0.3, 0.4), p(-0.3, -0.4)], c);
+    strip(
+        mesh,
+        &[
+            p(-0.3, -0.4),
+            p(0.3, -0.4),
+            p(0.3, 0.4),
+            p(-0.3, 0.4),
+            p(-0.3, -0.4),
+        ],
+        c,
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -588,11 +960,7 @@ fn emit_unknown_box(mesh: &mut TextMesh, p: &impl Fn(f32, f32) -> [f32; 3], c: [
 // -----------------------------------------------------------------------
 
 /// Generate a diamond (octahedron outline) marker at `center`.
-pub fn build_diamond_marker(
-    center: Vector3<f32>,
-    size: f32,
-    color: [f32; 3],
-) -> TextMesh {
+pub fn build_diamond_marker(center: Vector3<f32>, size: f32, color: [f32; 3]) -> TextMesh {
     let dir = center.normalize();
     let up = Vector3::new(0.0, 0.0, 1.0);
     let right = Vector3::new(1.0, 0.0, 0.0);
@@ -602,18 +970,21 @@ pub fn build_diamond_marker(
     let top = center + dir * size;
     let bottom = center - dir * size;
 
-    let equator = [
-        center + u,
-        center + v,
-        center - u,
-        center - v,
-    ];
+    let equator = [center + u, center + v, center - u, center - v];
 
     let mut mesh = TextMesh::new();
     for i in 0..4 {
         let next = (i + 1) % 4;
-        strip(&mut mesh, &[top.into(), equator[i].into(), equator[next].into()], color);
-        strip(&mut mesh, &[bottom.into(), equator[i].into(), equator[next].into()], color);
+        strip(
+            &mut mesh,
+            &[top.into(), equator[i].into(), equator[next].into()],
+            color,
+        );
+        strip(
+            &mut mesh,
+            &[bottom.into(), equator[i].into(), equator[next].into()],
+            color,
+        );
     }
     mesh
 }

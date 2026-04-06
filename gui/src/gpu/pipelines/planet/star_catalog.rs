@@ -339,8 +339,8 @@ fn load_star_catalog() -> Vec<StarInstance> {
         let cos_dec = dec.cos();
         let direction = [cos_dec * ra.cos(), cos_dec * ra.sin(), dec.sin()];
 
-        let intensity = (10.0_f32).powf(-0.4 * (mag - 1.5)).clamp(0.18, 2.6);
-        let size_px = (3.4 - 0.17 * mag).clamp(1.6, 6.0);
+        let intensity = (10.0_f32).powf(-0.32 * (mag - 0.5)).clamp(0.14, 2.2);
+        let size_px = (1.9 - 0.14 * mag).clamp(0.9, 4.2);
 
         let ci = ci_idx
             .and_then(|i| record.get(i))

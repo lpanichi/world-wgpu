@@ -498,7 +498,7 @@ impl SimulationBuilder {
             planet_triangles: self.planet_triangles,
             simulation_time: simulation_time,
             start_time: simulation_time,
-            last_tick_time: simulation_time,
+            last_tick_time: Utc::now(),
             simulation_speed: 60,
             precession_enabled: false,
             rect_surfaces: Vec::new(),

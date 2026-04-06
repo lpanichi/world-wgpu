@@ -1,7 +1,10 @@
-use std::sync::atomic::Ordering;
-use nalgebra::{Rotation3, Vector3};
+use super::{
+    COLOR_CYAN, COLOR_GREEN, COLOR_MAGENTA, COLOR_RED, COLOR_WHITE, COLOR_YELLOW, Shapes,
+    colored_vert, merge_text_mesh,
+};
 use crate::model::text_vertices;
-use super::{colored_vert, merge_text_mesh, COLOR_CYAN, COLOR_GREEN, COLOR_YELLOW, COLOR_MAGENTA, COLOR_RED, COLOR_WHITE, Shapes};
+use nalgebra::{Rotation3, Vector3};
+use std::sync::atomic::Ordering;
 
 /// Orbital elements visualization helper.
 #[derive(Debug, Clone)]
@@ -70,17 +73,12 @@ impl OrbitalElements {
             ));
             ranges.push((start, 2));
 
-            let rot = Rotation3::from_axis_angle(&Vector3::z_axis(), raan)
-                * Rotation3::from_axis_angle(&Vector3::x_axis(), inc);
             let nu_an = -argp;
             let r_an = a * (1.0 - e * e) / (1.0 + e * nu_an.cos());
-            let asc_node_orb = Vector3::new(r_an * nu_an.cos(), r_an * nu_an.sin(), 0.0);
-            let asc_node_pos = rot * asc_node_orb;
-            let dm = text_vertices::build_diamond_marker(
-                asc_node_pos,
-                a * 0.04,
-                self.color_markers,
-            );
+            // Ascending node lies on the line of nodes (z=0), where orbital and equatorial planes intersect.
+            let asc_node_pos = node_dir * r_an;
+            let dm =
+                text_vertices::build_diamond_marker(asc_node_pos, a * 0.04, self.color_markers);
             merge_text_mesh(verts, ranges, &dm, 0.0);
 
             let asc_dir = asc_node_pos.normalize();
@@ -173,10 +171,12 @@ impl OrbitalElements {
         if self.show_inclination_arc {
             let node_dir = Vector3::new(raan.cos(), raan.sin(), 0.0);
             let perp = Vector3::new(0.0, 0.0, 1.0);
-            let arc_radius = a * 0.3;
+            // Draw inclination annotation on the opposite side of the orbit,
+            // using the same radius as the equatorial/orbital reference circles.
+            let arc_radius = a;
             let segments = 32;
             let start = verts.len() as u32;
-            let ref_in_eq = node_dir.cross(&perp).normalize();
+            let ref_in_eq = -node_dir.cross(&perp).normalize();
             for i in 0..=segments {
                 let angle = i as f32 / segments as f32 * inc;
                 let p = (ref_in_eq * angle.cos() + perp * angle.sin()) * arc_radius;
@@ -185,9 +185,8 @@ impl OrbitalElements {
             ranges.push((start, segments as u32 + 1));
 
             let mid_angle = inc * 0.5;
-            let mid_pt =
-                (ref_in_eq * mid_angle.cos() + perp * mid_angle.sin()) * arc_radius * 1.2;
-            let mid_dir = mid_pt.normalize();
+            let mid_dir = (ref_in_eq * mid_angle.cos() + perp * mid_angle.sin()).normalize();
+            let mid_pt = mid_dir * arc_radius;
             let tm = text_vertices::build_text(
                 mid_pt,
                 mid_dir,

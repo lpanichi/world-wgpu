@@ -1,6 +1,8 @@
 struct VsUniforms {
     view_proj: mat4x4<f32>,
+    sun_direction: vec4<f32>,
     earth_rotation_angle: f32,
+    _padding: vec2<u32>,
 }
 
 @group(0) @binding(0)

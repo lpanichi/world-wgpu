@@ -53,12 +53,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    let core = exp(-r * r * 1.5);
-    let halo = exp(-r * 2.8) * 0.45;
+    let core = exp(-r * r * 0.25);
+    let halo = exp(-r * 3.3) * 0.35;
     let glow = (core + halo) * in.intensity;
 
-    let alpha = clamp(glow * 2.3, 0.0, 1.0);
-    if alpha < 0.005 {
+    let alpha = clamp(glow * 1.5, 0.0, 1.0);
+    if alpha < 0.004 {
         discard;
     }
 

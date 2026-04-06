@@ -28,3 +28,7 @@ cargo run --example simulation
 ```
 
 This project primarily works with the `smol` executor for timing subscriptions.
+
+## Documentation
+
+- MSAA implementation details: [docs/msaa.md](docs/msaa.md)
