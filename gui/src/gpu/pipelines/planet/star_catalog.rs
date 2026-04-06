@@ -373,3 +373,77 @@ fn color_from_bv(bv: f32) -> [f32; 3] {
         [1.0, 0.72, 0.52]
     }
 }
+
+/// Retrieves the directions of stars that have proper names in the catalog.
+pub fn get_named_stars() -> Vec<(String, [f32; 3])> {
+    let mut decoder = flate2::read::GzDecoder::new(STAR_CATALOG_GZ);
+    let mut csv_data = String::new();
+    if std::io::Read::read_to_string(&mut decoder, &mut csv_data).is_err() {
+        log::warn!("Failed to decompress star catalog");
+        return Vec::new();
+    }
+
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(csv_data.as_bytes());
+
+    let headers = match reader.headers() {
+        Ok(h) => h.clone(),
+        Err(_) => {
+            log::warn!("Failed to read star catalog headers");
+            return Vec::new();
+        }
+    };
+
+    let idx = |name: &str| headers.iter().position(|h| h == name);
+
+    let rarad_idx = idx("rarad");
+    let decrad_idx = idx("decrad");
+    let ra_idx = idx("ra");
+    let dec_idx = idx("dec");
+    let proper_idx = idx("proper");
+
+    let Some(proper_idx) = proper_idx else {
+        return Vec::new();
+    };
+
+    let mut named_stars = Vec::new();
+
+    for record in reader.records().flatten() {
+        let proper = record.get(proper_idx).unwrap_or("").trim();
+        if proper.is_empty() {
+            continue;
+        }
+
+        let ra_rad = if let Some(i) = rarad_idx {
+            record.get(i).and_then(|v| v.parse::<f32>().ok())
+        } else if let Some(i) = ra_idx {
+            record
+                .get(i)
+                .and_then(|v| v.parse::<f32>().ok())
+                .map(|hours| hours * std::f32::consts::TAU / 24.0)
+        } else {
+            None
+        };
+
+        let dec_rad = if let Some(i) = decrad_idx {
+            record.get(i).and_then(|v| v.parse::<f32>().ok())
+        } else if let Some(i) = dec_idx {
+            record
+                .get(i)
+                .and_then(|v| v.parse::<f32>().ok())
+                .map(|deg| deg * std::f32::consts::TAU / 360.0)
+        } else {
+            None
+        };
+
+        if let (Some(ra), Some(dec)) = (ra_rad, dec_rad) {
+            let x = dec.cos() * ra.cos();
+            let y = dec.cos() * ra.sin();
+            let z = dec.sin();
+            named_stars.push((proper.to_string(), [x, y, z]));
+        }
+    }
+
+    named_stars
+}

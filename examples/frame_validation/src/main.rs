@@ -80,6 +80,20 @@ impl FrameValidationSimulation {
         core_sim.shapes.add_eci_frame(earth_radius * 2.5);
 
         // Add directions to reference stars/points manually to ensure they match ECI axes X and Z
+        // Add characteristic named stars
+        let named_stars = gui::gpu::pipelines::planet::star_catalog::get_named_stars();
+        for (name, dir) in named_stars.iter() {
+            if ["Sirius", "Polaris", "Betelgeuse", "Rigel", "Vega", "Canopus"].contains(&name.as_str()) {
+                core_sim.shapes.add_colored_star_line(
+                    gui::model::FrameMode::Eci,
+                    *dir,
+                    earth_radius * 3.5,
+                    [1.0, 0.9, 0.4],
+                    name,
+                );
+            }
+        }
+
         core_sim.shapes.add_colored_star_line(
             gui::model::FrameMode::Eci,
             [1.0, 0.0, 0.0],
