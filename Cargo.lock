@@ -402,6 +402,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "autumnal_equinox"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "env_logger",
+ "gui",
+ "iced",
+ "log",
+ "nalgebra",
+]
+
+[[package]]
 name = "av-scenechange"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5086,6 +5098,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a5364e9d77fcdeeaa6062ced926ee3381faa2ee02d3eb83a5c27a8825540829"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "winter_solstice"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "env_logger",
+ "gui",
+ "iced",
+ "log",
+ "nalgebra",
 ]
 
 [[package]]

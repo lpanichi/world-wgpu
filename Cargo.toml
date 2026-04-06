@@ -97,3 +97,11 @@ path = "examples/shapes/src/main.rs"
 
 [workspace.lints.clippy]
 large-enum-variant = "allow"
+
+[[example]]
+name = "autumnal_equinox"
+path = "examples/autumnal_equinox/src/main.rs"
+
+[[example]]
+name = "winter_solstice"
+path = "examples/winter_solstice/src/main.rs"

@@ -1,0 +1,12 @@
+[package]
+name = "winter_solstice"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+iced = { workspace = true }
+gui = { workspace = true }
+chrono = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+nalgebra = { workspace = true }
