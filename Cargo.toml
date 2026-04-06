@@ -107,5 +107,9 @@ path = "examples/orbit_elements/src/main.rs"
 name = "frame_validation"
 path = "examples/frame_validation/src/main.rs"
 
+[[example]]
+name = "shapes"
+path = "examples/shapes/src/main.rs"
+
 [workspace.lints.clippy]
 large-enum-variant = "allow"

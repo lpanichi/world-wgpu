@@ -13,6 +13,8 @@ pub struct Orbit {
     pub arg_perigee_deg: f32,
     pub show_orbit: bool,
     pub satellites: Vec<Satellite>,
+    /// Whether to apply J2 perturbation when computing satellite position.
+    pub with_j2: bool,
     /// Half-angle of the projected FOV cone for satellites on this orbit (degrees).
     pub fov_half_angle_deg: f32,
     /// Whether to show the projected FOV circles.
@@ -32,6 +34,7 @@ impl Orbit {
             arg_perigee_deg: 0.0,
             show_orbit: true,
             satellites: Vec::new(),
+            with_j2: true,
             fov_half_angle_deg: 14.0,
             show_fov: true,
             fill_fov: false,
@@ -44,18 +47,9 @@ impl Orbit {
         (2.0 * std::f64::consts::PI * (a.powi(3) / mu).sqrt()) as f32
     }
 
-    pub fn position(&self, elapsed: f32, satellite: &Satellite) -> [f32; 3] {
-        self.position_with_j2(elapsed, satellite, true)
-    }
-
     /// Compute satellite position with optional J2 secular perturbation.
     /// J2 causes secular drift in RAAN and argument of perigee for LEO orbits.
-    pub fn position_with_j2(
-        &self,
-        elapsed: f32,
-        satellite: &Satellite,
-        j2_enabled: bool,
-    ) -> [f32; 3] {
+    pub fn position(&self, elapsed: f32, satellite: &Satellite) -> [f32; 3] {
         let period = self.period_seconds.max(f32::EPSILON);
         let mean_anomaly = (elapsed / period * std::f32::consts::TAU + satellite.phase_offset_rad)
             .rem_euclid(std::f32::consts::TAU);
@@ -68,7 +62,7 @@ impl Orbit {
         let inc = self.inclination_deg.to_radians();
         let raan = self.raan_deg.to_radians();
 
-        let (raan_eff, argp_eff) = if j2_enabled && self.semi_major_axis > EARTH_RADIUS {
+        let (raan_eff, argp_eff) = if self.with_j2 && self.semi_major_axis > EARTH_RADIUS {
             // J2 secular perturbation rates
             let a = self.semi_major_axis as f64;
             let re = EARTH_RADIUS as f64;
@@ -127,6 +121,7 @@ pub struct OrbitBuilder {
     pub arg_perigee_deg: f32,
     pub show_orbit: bool,
     pub satellites: Vec<Satellite>,
+    pub with_j2: bool,
     pub fov_half_angle_deg: f32,
     pub show_fov: bool,
     pub fill_fov: bool,
@@ -158,6 +153,11 @@ impl OrbitBuilder {
         self
     }
 
+    pub fn with_j2(mut self, value: bool) -> Self {
+        self.with_j2 = value;
+        self
+    }
+
     pub fn add_satellite(mut self, satellite: Satellite) -> Self {
         self.satellites.push(satellite);
         self
@@ -173,6 +173,7 @@ impl OrbitBuilder {
             arg_perigee_deg: self.arg_perigee_deg,
             show_orbit: self.show_orbit,
             satellites: self.satellites,
+            with_j2: self.with_j2,
             fov_half_angle_deg: self.fov_half_angle_deg,
             show_fov: self.show_fov,
             fill_fov: self.fill_fov,

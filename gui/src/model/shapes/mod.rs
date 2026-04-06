@@ -6,6 +6,14 @@ use std::sync::{
 use nalgebra::{Rotation3, Vector3};
 
 use super::text_vertices;
+pub mod frame;
+pub mod line;
+pub mod orbital_elements;
+pub mod point;
+pub use frame::Frame;
+pub use line::Line;
+pub use orbital_elements::OrbitalElements;
+pub use point::Point;
 use crate::model::system::EARTH_RADIUS_KM;
 
 /// Default shape colors.
@@ -17,79 +25,6 @@ pub const COLOR_CYAN: [f32; 3] = [0.3, 1.0, 1.0];
 pub const COLOR_YELLOW: [f32; 3] = [1.0, 1.0, 0.3];
 pub const COLOR_WHITE: [f32; 3] = [1.0, 1.0, 1.0];
 pub const COLOR_MAGENTA: [f32; 3] = [1.0, 0.3, 1.0];
-
-/// A single colored line segment in world (ECI) coordinates.
-#[derive(Debug, Clone)]
-pub struct Line {
-    pub start: [f32; 3],
-    pub end: [f32; 3],
-    pub label: String,
-    pub color: [f32; 3],
-}
-
-/// A point marker in world (ECI) coordinates.
-#[derive(Debug, Clone)]
-pub struct Point {
-    pub position: [f32; 3],
-    pub label: String,
-    pub color: [f32; 3],
-    /// Altitude above the surface in km (0 = on surface).
-    pub altitude: f32,
-}
-
-/// A 3-axis reference frame to visualize.
-#[derive(Debug, Clone)]
-pub struct Frame {
-    pub origin: [f32; 3],
-    /// Column-major 3×3 rotation matrix (each column is an axis direction).
-    pub axes: [[f32; 3]; 3],
-    pub axis_length: f32,
-    pub label: String,
-}
-
-/// Orbital elements visualization helper.
-#[derive(Debug, Clone)]
-pub struct OrbitalElements {
-    pub semi_major_axis: f32,
-    pub eccentricity: f32,
-    pub inclination_deg: f32,
-    pub raan_deg: f32,
-    pub arg_perigee_deg: f32,
-    pub show_ascending_node: bool,
-    pub show_orbital_plane: bool,
-    pub show_inclination_arc: bool,
-    pub show_perigee_apogee: bool,
-    pub color_equatorial: [f32; 3],
-    pub color_orbital: [f32; 3],
-    pub color_node_line: [f32; 3],
-    pub color_perigee_line: [f32; 3],
-    pub color_inclination_arc: [f32; 3],
-    pub color_markers: [f32; 3],
-}
-
-impl OrbitalElements {
-    /// Return an `OrbitalElements` with zero geometry values but default colors.
-    /// Use struct update syntax `..OrbitalElements::default_colors()` to fill colors.
-    pub fn default_colors() -> Self {
-        Self {
-            semi_major_axis: 0.0,
-            eccentricity: 0.0,
-            inclination_deg: 0.0,
-            raan_deg: 0.0,
-            arg_perigee_deg: 0.0,
-            show_ascending_node: true,
-            show_orbital_plane: true,
-            show_inclination_arc: true,
-            show_perigee_apogee: true,
-            color_equatorial: COLOR_CYAN,
-            color_orbital: COLOR_GREEN,
-            color_node_line: COLOR_YELLOW,
-            color_perigee_line: COLOR_MAGENTA,
-            color_inclination_arc: COLOR_RED,
-            color_markers: COLOR_WHITE,
-        }
-    }
-}
 
 /// Cached output of `line_points()`.
 struct ShapesCache {
@@ -166,79 +101,6 @@ impl Shapes {
         self.dirty.store(true, Ordering::Relaxed);
     }
 
-    /// Add a line segment between two world-space points.
-    pub fn add_line(&mut self, start: [f32; 3], end: [f32; 3], label: impl Into<String>) {
-        self.dirty.store(true, Ordering::Relaxed);
-        self.lines.push(Line {
-            start,
-            end,
-            label: label.into(),
-            color: COLOR_ORANGE,
-        });
-    }
-
-    /// Add a colored line segment between two world-space points.
-    pub fn add_colored_line(
-        &mut self,
-        start: [f32; 3],
-        end: [f32; 3],
-        color: [f32; 3],
-        label: impl Into<String>,
-    ) {
-        self.dirty.store(true, Ordering::Relaxed);
-        self.lines.push(Line {
-            start,
-            end,
-            label: label.into(),
-            color,
-        });
-    }
-
-    /// Add a point marker at a world-space position.
-    pub fn add_point(&mut self, position: [f32; 3], label: impl Into<String>) {
-        self.dirty.store(true, Ordering::Relaxed);
-        self.points.push(Point {
-            position,
-            label: label.into(),
-            color: COLOR_ORANGE,
-            altitude: 0.0,
-        });
-    }
-
-    /// Add a colored point marker at a world-space position with altitude.
-    pub fn add_colored_point(
-        &mut self,
-        position: [f32; 3],
-        color: [f32; 3],
-        altitude: f32,
-        label: impl Into<String>,
-    ) {
-        self.dirty.store(true, Ordering::Relaxed);
-        self.points.push(Point {
-            position,
-            label: label.into(),
-            color,
-            altitude,
-        });
-    }
-
-    /// Add a coordinate frame (3 axes) at the given origin.
-    pub fn add_frame(
-        &mut self,
-        origin: [f32; 3],
-        axes: [[f32; 3]; 3],
-        axis_length: f32,
-        label: impl Into<String>,
-    ) {
-        self.dirty.store(true, Ordering::Relaxed);
-        self.frames.push(Frame {
-            origin,
-            axes,
-            axis_length,
-            label: label.into(),
-        });
-    }
-
     /// Enable ECI frame display (X toward vernal equinox, Z toward north pole) at Earth center.
     pub fn add_eci_frame(&mut self, axis_length: f32) {
         self.dirty.store(true, Ordering::Relaxed);
@@ -249,77 +111,6 @@ impl Shapes {
     pub fn add_ecef_frame(&mut self, axis_length: f32) {
         self.dirty.store(true, Ordering::Relaxed);
         self.show_ecef_frame = Some(axis_length);
-    }
-
-    /// Add a line from Earth center toward the Sun (unit direction scaled).
-    pub fn add_sun_line(&mut self, sun_dir: [f32; 3], length: f32) {
-        let end = [
-            sun_dir[0] * length,
-            sun_dir[1] * length,
-            sun_dir[2] * length,
-        ];
-        self.add_line([0.0, 0.0, 0.0], end, "Sun direction");
-    }
-
-    /// Add a point on the Earth surface at the given lat/lon (degrees).
-    pub fn add_surface_point(&mut self, lat_deg: f32, lon_deg: f32, label: impl Into<String>) {
-        let pos = lat_lon_to_ecef(lat_deg, lon_deg);
-        self.add_point(pos, label);
-    }
-
-    /// Add a colored point on the Earth surface with altitude.
-    pub fn add_colored_surface_point(
-        &mut self,
-        lat_deg: f32,
-        lon_deg: f32,
-        color: [f32; 3],
-        altitude: f32,
-        label: impl Into<String>,
-    ) {
-        let pos = lat_lon_to_ecef(lat_deg, lon_deg);
-        self.add_colored_point(pos, color, altitude, label);
-    }
-
-    /// Add a line from Earth center to a surface point at lat/lon, extended above the surface.
-    pub fn add_surface_line(
-        &mut self,
-        lat_deg: f32,
-        lon_deg: f32,
-        extension: f32,
-        label: impl Into<String>,
-    ) {
-        let pos = lat_lon_to_ecef(lat_deg, lon_deg);
-        let dir = Vector3::new(pos[0], pos[1], pos[2]).normalize();
-        let end = dir * (EARTH_RADIUS_KM + extension);
-        self.add_line([0.0, 0.0, 0.0], end.into(), label);
-    }
-
-    /// Add orbital elements visualization for a given orbit.
-    pub fn add_orbital_elements(
-        &mut self,
-        semi_major_axis: f32,
-        inclination_deg: f32,
-        raan_deg: f32,
-        arg_perigee_deg: f32,
-    ) {
-        self.dirty.store(true, Ordering::Relaxed);
-        self.orbital_elements.push(OrbitalElements {
-            semi_major_axis,
-            eccentricity: 0.0,
-            inclination_deg,
-            raan_deg,
-            arg_perigee_deg,
-            show_ascending_node: true,
-            show_orbital_plane: true,
-            show_inclination_arc: true,
-            show_perigee_apogee: true,
-            color_equatorial: COLOR_CYAN,
-            color_orbital: COLOR_GREEN,
-            color_node_line: COLOR_YELLOW,
-            color_perigee_line: COLOR_MAGENTA,
-            color_inclination_arc: COLOR_RED,
-            color_markers: COLOR_WHITE,
-        });
     }
 
     /// Generate all line-strip segments for rendering.
