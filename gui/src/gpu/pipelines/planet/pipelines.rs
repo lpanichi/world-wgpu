@@ -4,6 +4,8 @@ use iced::{
     widget::shader,
 };
 
+const MSAA_SAMPLE_COUNT: u32 = 4;
+
 use crate::astro::Astral;
 use crate::gpu::pipelines::planet::{
     atmosphere::AtmospherePipeline,
@@ -38,6 +40,8 @@ pub struct Pipelines {
     cloud: CloudPipeline,
     atmosphere: AtmospherePipeline,
     clear_quad: ClearQuadPipeline,
+    format: wgpu::TextureFormat,
+    msaa_color_texture: Option<wgpu::Texture>,
     depth_texture: Option<wgpu::Texture>,
     depth_size: (u32, u32),
     show_clouds: bool,
@@ -107,6 +111,8 @@ impl Pipelines {
             cloud,
             atmosphere,
             clear_quad,
+            format,
+            msaa_color_texture: None,
             depth_texture: None,
             depth_size: (0, 0),
             show_clouds: true,
@@ -152,6 +158,20 @@ impl Pipelines {
 
         if self.depth_size != (width, height) {
             self.depth_size = (width, height);
+            self.msaa_color_texture = Some(device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("MSAA Color Texture"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: MSAA_SAMPLE_COUNT,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            }));
             self.depth_texture = Some(device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Depth Texture"),
                 size: wgpu::Extent3d {
@@ -160,7 +180,7 @@ impl Pipelines {
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
-                sample_count: 1,
+                sample_count: MSAA_SAMPLE_COUNT,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Depth24Plus,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -262,12 +282,17 @@ impl Pipelines {
             .as_ref()
             .map(|tex| tex.create_view(&wgpu::TextureViewDescriptor::default()));
 
+        let msaa_view = self
+            .msaa_color_texture
+            .as_ref()
+            .map(|tex| tex.create_view(&wgpu::TextureViewDescriptor::default()));
+
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
+                view: msaa_view.as_ref().unwrap_or(target),
                 depth_slice: None,
-                resolve_target: None,
+                resolve_target: msaa_view.as_ref().map(|_| target),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,

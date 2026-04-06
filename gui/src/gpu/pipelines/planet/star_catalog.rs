@@ -11,7 +11,8 @@ use std::io::Read;
 
 const STAR_CATALOG_GZ: &[u8] = include_bytes!("../../../../../stars/hygdata_v40.csv.gz");
 const STAR_DISTANCE_KM: f32 = 120_000.0;
-const MAX_VISIBLE_MAGNITUDE: f32 = 6.5;
+const MAX_VISIBLE_MAGNITUDE: f32 = 7.5;
+const STAR_DISTANCE_MARGIN: f32 = 0.9;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -25,11 +26,17 @@ struct StarUniforms {
 
 impl StarUniforms {
     fn new(camera: &Camera, width: f32, height: f32) -> Self {
+        let star_distance = if camera.zfar < STAR_DISTANCE_KM {
+            camera.zfar * STAR_DISTANCE_MARGIN
+        } else {
+            STAR_DISTANCE_KM
+        };
+
         Self {
             view_proj: camera.build_view_projection_matrix().into(),
             camera_position: [camera.eye.x, camera.eye.y, camera.eye.z, 1.0],
             viewport_size: [width.max(1.0), height.max(1.0)],
-            star_distance: STAR_DISTANCE_KM,
+            star_distance,
             _padding: 0.0,
         }
     }
@@ -210,7 +217,7 @@ impl StarCatalogPipeline {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: 4,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -332,8 +339,8 @@ fn load_star_catalog() -> Vec<StarInstance> {
         let cos_dec = dec.cos();
         let direction = [cos_dec * ra.cos(), cos_dec * ra.sin(), dec.sin()];
 
-        let intensity = (10.0_f32).powf(-0.4 * (mag - 2.0)).clamp(0.05, 1.8);
-        let size_px = (2.6 - 0.22 * mag).clamp(0.8, 3.8);
+        let intensity = (10.0_f32).powf(-0.4 * (mag - 1.5)).clamp(0.18, 2.6);
+        let size_px = (3.4 - 0.17 * mag).clamp(1.6, 6.0);
 
         let ci = ci_idx
             .and_then(|i| record.get(i))

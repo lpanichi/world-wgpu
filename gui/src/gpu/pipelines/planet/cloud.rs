@@ -8,8 +8,8 @@ use iced::wgpu::{
 };
 use nalgebra::Vector3;
 
-/// Cloud layer radius = Earth + ~19km to avoid depth-fighting at far zoom.
-const CLOUD_SCALE: f32 = 1.0030;
+/// Cloud layer radius = Earth + ~35km to avoid depth-fighting at far zoom.
+const CLOUD_SCALE: f32 = 1.0055;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -139,7 +139,7 @@ impl CloudPipeline {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: 4,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
