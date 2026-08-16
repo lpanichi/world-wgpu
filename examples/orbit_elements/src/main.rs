@@ -142,7 +142,6 @@ impl OrbitElementsSimulation {
                 show_perigee_apogee: self.show_perigee_apogee,
                 ..OrbitalElements::default_colors()
             });
-        self.program.system.shapes.invalidate();
 
         // Also rebuild the first orbit to match visualization
         if let Some(orbit) = self.program.system.orbits.first_mut() {

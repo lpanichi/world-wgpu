@@ -1,7 +1,6 @@
 use super::{COLOR_ORANGE, Shapes, colored_vert, merge_text_mesh, text_vertices};
 use crate::model::{FrameMode, system::EARTH_RADIUS_KM};
 use nalgebra::Vector3;
-use std::sync::atomic::Ordering;
 
 /// A single colored line segment in world coordinates.
 #[derive(Debug, Clone)]
@@ -22,7 +21,6 @@ impl Shapes {
         end: [f32; 3],
         label: impl Into<String>,
     ) {
-        self.dirty.store(true, Ordering::Relaxed);
         self.lines.push(Line {
             frame_mode,
             start,
@@ -41,7 +39,6 @@ impl Shapes {
         color: [f32; 3],
         label: impl Into<String>,
     ) {
-        self.dirty.store(true, Ordering::Relaxed);
         self.lines.push(Line {
             frame_mode,
             start,

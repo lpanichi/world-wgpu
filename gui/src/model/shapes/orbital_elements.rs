@@ -4,7 +4,6 @@ use super::{
 };
 use crate::model::text_vertices;
 use nalgebra::{Rotation3, Vector3};
-use std::sync::atomic::Ordering;
 
 /// Orbital elements visualization helper.
 #[derive(Debug, Clone)]
@@ -208,7 +207,6 @@ impl Shapes {
         raan_deg: f32,
         arg_perigee_deg: f32,
     ) {
-        self.dirty.store(true, Ordering::Relaxed);
         self.orbital_elements.push(OrbitalElements {
             semi_major_axis,
             eccentricity: 0.0,

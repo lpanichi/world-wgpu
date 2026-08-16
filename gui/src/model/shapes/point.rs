@@ -1,7 +1,6 @@
 use super::{COLOR_ORANGE, Shapes, colored_vert, merge_text_mesh, text_vertices};
 use crate::model::{FrameMode, system::EARTH_RADIUS_KM};
 use nalgebra::Vector3;
-use std::sync::atomic::Ordering;
 
 /// A point marker in world coordinates.
 #[derive(Debug, Clone)]
@@ -22,7 +21,6 @@ impl Shapes {
         position: [f32; 3],
         label: impl Into<String>,
     ) {
-        self.dirty.store(true, Ordering::Relaxed);
         self.points.push(Point {
             frame_mode,
             position,
@@ -41,7 +39,6 @@ impl Shapes {
         altitude: f32,
         label: impl Into<String>,
     ) {
-        self.dirty.store(true, Ordering::Relaxed);
         self.points.push(Point {
             frame_mode,
             position,

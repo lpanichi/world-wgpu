@@ -1,8 +1,3 @@
-use std::sync::{
-    Mutex,
-    atomic::{AtomicBool, Ordering},
-};
-
 use super::text_vertices;
 pub mod frame;
 pub mod line;
@@ -24,13 +19,8 @@ pub const COLOR_YELLOW: [f32; 3] = [1.0, 1.0, 0.3];
 pub const COLOR_WHITE: [f32; 3] = [1.0, 1.0, 1.0];
 pub const COLOR_MAGENTA: [f32; 3] = [1.0, 0.3, 1.0];
 
-/// Cached output of `line_points()`.
-struct ShapesCache {
-    vertices: Vec<[f32; 7]>,
-    ranges: Vec<(u32, u32)>,
-}
-
 /// Collection of shapes to render on top of the scene.
+#[derive(Debug, Clone, Default)]
 pub struct Shapes {
     pub lines: Vec<Line>,
     pub points: Vec<Point>,
@@ -40,51 +30,6 @@ pub struct Shapes {
     pub show_eci_frame: Option<f32>,
     /// If set, draw an ECEF frame with this axis length (rotates dynamically with Earth).
     pub show_ecef_frame: Option<f32>,
-    dirty: AtomicBool,
-    cache: Mutex<Option<ShapesCache>>,
-}
-
-impl Default for Shapes {
-    fn default() -> Self {
-        Self {
-            lines: Vec::new(),
-            points: Vec::new(),
-            frames: Vec::new(),
-            orbital_elements: Vec::new(),
-            show_eci_frame: None,
-            show_ecef_frame: None,
-            dirty: AtomicBool::new(true),
-            cache: Mutex::new(None),
-        }
-    }
-}
-
-impl Clone for Shapes {
-    fn clone(&self) -> Self {
-        Self {
-            lines: self.lines.clone(),
-            points: self.points.clone(),
-            frames: self.frames.clone(),
-            orbital_elements: self.orbital_elements.clone(),
-            show_eci_frame: self.show_eci_frame,
-            show_ecef_frame: self.show_ecef_frame,
-            dirty: AtomicBool::new(true),
-            cache: Mutex::new(None),
-        }
-    }
-}
-
-impl std::fmt::Debug for Shapes {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Shapes")
-            .field("lines", &self.lines)
-            .field("points", &self.points)
-            .field("frames", &self.frames)
-            .field("orbital_elements", &self.orbital_elements)
-            .field("show_eci_frame", &self.show_eci_frame)
-            .field("show_ecef_frame", &self.show_ecef_frame)
-            .finish()
-    }
 }
 
 impl Shapes {
@@ -92,49 +37,20 @@ impl Shapes {
         Self::default()
     }
 
-    /// Mark the cached output as stale. Call this after directly modifying
-    /// public fields (e.g. `orbital_elements`).
-    pub fn invalidate(&self) {
-        self.dirty.store(true, Ordering::Relaxed);
-    }
-
     /// Enable ECI frame display (X toward vernal equinox, Z toward north pole) at Earth center.
     pub fn add_eci_frame(&mut self, axis_length: f32) {
-        self.dirty.store(true, Ordering::Relaxed);
         self.show_eci_frame = Some(axis_length);
     }
 
     /// Enable ECEF frame display. The frame rotates dynamically with Earth each render frame.
     pub fn add_ecef_frame(&mut self, axis_length: f32) {
-        self.dirty.store(true, Ordering::Relaxed);
         self.show_ecef_frame = Some(axis_length);
     }
 
     /// Generate all line-strip segments for rendering.
     /// Returns (vertices, ranges) where each vertex has position, color, and a rotate-with-earth flag.
-    /// Results are cached and only regenerated when shapes change.
-    pub fn get_shapes(&self, _earth_rotation_angle: f32) -> (Vec<[f32; 7]>, Vec<(u32, u32)>) {
-        // Check cache validity
-        if !self.dirty.load(Ordering::Relaxed) {
-            if let Ok(guard) = self.cache.lock() {
-                if let Some(ref cache) = *guard {
-                    return (cache.vertices.clone(), cache.ranges.clone());
-                }
-            }
-        }
-
-        let (verts, ranges) = self.generate_shapes();
-
-        // Store in cache
-        if let Ok(mut guard) = self.cache.lock() {
-            *guard = Some(ShapesCache {
-                vertices: verts.clone(),
-                ranges: ranges.clone(),
-            });
-        }
-        self.dirty.store(false, Ordering::Relaxed);
-
-        (verts, ranges)
+    pub fn get_shapes(&self) -> (Vec<[f32; 7]>, Vec<(u32, u32)>) {
+        self.generate_shapes()
     }
 
     fn generate_shapes(&self) -> (Vec<[f32; 7]>, Vec<(u32, u32)>) {

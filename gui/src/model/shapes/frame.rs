@@ -1,7 +1,6 @@
 use super::Shapes;
 use crate::model::{FrameMode, text_vertices};
 use nalgebra::Vector3;
-use std::sync::atomic::Ordering;
 
 /// A 3-axis reference frame to visualize.
 #[derive(Debug, Clone)]
@@ -24,7 +23,6 @@ impl Shapes {
         axis_length: f32,
         label: impl Into<String>,
     ) {
-        self.dirty.store(true, Ordering::Relaxed);
         self.frames.push(Frame {
             frame_mode,
             origin,

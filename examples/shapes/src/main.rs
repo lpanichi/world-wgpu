@@ -462,13 +462,13 @@ fn create_text_mesh() -> TextMesh {
     );
     shapes.add_orbital_elements(3.5, 35.0, 20.0, 55.0);
 
-    append_shapes_to_mesh(&mut mesh, &shapes, 0.0);
+    append_shapes_to_mesh(&mut mesh, &shapes);
 
     mesh
 }
 
-fn append_shapes_to_mesh(mesh: &mut TextMesh, shapes: &Shapes, earth_rotation_angle: f32) {
-    let (shape_vertices, shape_ranges) = shapes.get_shapes(earth_rotation_angle);
+fn append_shapes_to_mesh(mesh: &mut TextMesh, shapes: &Shapes) {
+    let (shape_vertices, shape_ranges) = shapes.get_shapes();
     let offset = mesh.vertices.len() as u32;
     mesh.vertices.extend(shape_vertices.into_iter());
     for (start, len) in shape_ranges {
