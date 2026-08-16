@@ -1,6 +1,6 @@
 use iced::{
     Rectangle,
-    wgpu::{self, BindGroup, Buffer, BufferDescriptor, RenderPassDescriptor},
+    wgpu::{self, BindGroup, Buffer, RenderPassDescriptor},
     widget::shader,
 };
 
@@ -9,6 +9,7 @@ const MSAA_SAMPLE_COUNT: u32 = 4;
 use crate::astro::Astral;
 use crate::gpu::pipelines::planet::{
     atmosphere::AtmospherePipeline,
+    buffer::write_or_grow,
     camera::Camera,
     clear_quad::ClearQuadPipeline,
     cloud::CloudPipeline,
@@ -18,6 +19,7 @@ use crate::gpu::pipelines::planet::{
     shapes::{FEATURE_COLOR, ShapesPipeline},
     star_catalog::StarCatalogPipeline,
     uniforms::Uniforms,
+    vertex::ColoredVertex,
 };
 use crate::{
     gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode},
@@ -89,7 +91,7 @@ impl Pipelines {
 
         let planet = PlanetPipeline::new(device, queue, format, &uniform_bind_group_layout);
 
-        let shapes = ShapesPipeline::new(device, format, &uniform_bind_group_layout);
+        let shapes = ShapesPipeline::new(device, format, &uniform_bind_group_layout, MSAA_SAMPLE_COUNT);
         let star_catalog = StarCatalogPipeline::new(device, queue, format);
 
         let satellite = SatellitePipeline::new(device, queue, format);
@@ -251,30 +253,22 @@ impl Pipelines {
 
         // Filled FOV triangles — convert to colored vertices
         let fov_tris = system.satellite_fov_filled_triangles(elapsed);
-        if !fov_tris.is_empty() {
-            use crate::gpu::pipelines::planet::vertex::ColoredVertex;
-            let colored_fov: Vec<ColoredVertex> = fov_tris
-                .iter()
-                .map(|p| ColoredVertex {
-                    position: *p,
-                    color: FEATURE_COLOR,
-                    rotate_with_earth: 0.0,
-                })
-                .collect();
-            let size = bytemuck::cast_slice::<ColoredVertex, u8>(&colored_fov).len() as u64;
-            let buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("FOV Fill Buffer"),
-                size,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&colored_fov));
-            self.fov_fill_buffer = Some(buffer);
-            self.fov_fill_vertex_count = colored_fov.len() as u32;
-        } else {
-            self.fov_fill_buffer = None;
-            self.fov_fill_vertex_count = 0;
-        }
+        let colored_fov: Vec<ColoredVertex> = fov_tris
+            .iter()
+            .map(|p| ColoredVertex {
+                position: *p,
+                color: FEATURE_COLOR,
+                rotate_with_earth: 0.0,
+            })
+            .collect();
+        write_or_grow(
+            &mut self.fov_fill_buffer,
+            device,
+            queue,
+            bytemuck::cast_slice(&colored_fov),
+            "FOV Fill Buffer",
+        );
+        self.fov_fill_vertex_count = colored_fov.len() as u32;
 
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
     }
@@ -371,12 +365,14 @@ impl Pipelines {
 
             // Render filled FOV surfaces using the colored line pipeline
             if let Some(fov_buffer) = &self.fov_fill_buffer {
-                self.shapes.render_with_buffer(
-                    &mut render_pass,
-                    &self.uniforms_bind_group,
-                    fov_buffer,
-                    &[(0, self.fov_fill_vertex_count)],
-                );
+                if self.fov_fill_vertex_count > 0 {
+                    self.shapes.render_with_buffer(
+                        &mut render_pass,
+                        &self.uniforms_bind_group,
+                        fov_buffer,
+                        &[(0, self.fov_fill_vertex_count)],
+                    );
+                }
             }
 
             // Atmosphere rendered last (transparent, alpha-blended)

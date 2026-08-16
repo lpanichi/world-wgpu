@@ -185,7 +185,7 @@ impl shader::Pipeline for ShapesPipelineRenderer {
             });
 
         ShapesPipelineRenderer {
-            pipeline: ShapesPipeline::new(device, format, &uniform_bind_group_layout),
+            pipeline: ShapesPipeline::new(device, format, &uniform_bind_group_layout, 1),
             uniform_bind_group_layout,
             depth_texture: None,
         }
@@ -320,7 +320,7 @@ impl shader::Primitive for TextVerticesPrimitive {
 
         pipeline
             .pipeline
-            .set_data(device, queue, self.vertices.clone(), self.ranges.clone());
+            .set_data(device, queue, &self.vertices, &self.ranges);
         pipeline.prepare_depth_texture(
             device,
             viewport.physical_width(),

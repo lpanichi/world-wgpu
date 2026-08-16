@@ -1,4 +1,5 @@
 pub mod atmosphere;
+pub mod buffer;
 pub mod camera;
 pub mod clear_quad;
 pub mod cloud;

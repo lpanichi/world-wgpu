@@ -1,12 +1,15 @@
-use crate::{gpu::pipelines::planet::vertex::ColoredVertex, model::system::System};
+use crate::{
+    gpu::pipelines::planet::{buffer::write_or_grow, vertex::ColoredVertex},
+    model::system::System,
+};
 
 pub const ORBIT_SAMPLES: usize = 128;
 pub const ORBIT_COLOR: [f32; 3] = [1.0, 0.7, 0.2];
 pub const FEATURE_COLOR: [f32; 3] = [1.0, 0.7, 0.2];
 
 use iced::wgpu::{
-    self, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, RenderPipeline,
-    RenderPipelineDescriptor, TextureFormat,
+    self, BindGroup, BindGroupLayout, Buffer, RenderPipeline, RenderPipelineDescriptor,
+    TextureFormat,
 };
 
 pub struct ShapesPipeline {
@@ -22,6 +25,7 @@ impl ShapesPipeline {
         device: &wgpu::Device,
         format: TextureFormat,
         uniform_bind_group_layout: &BindGroupLayout,
+        sample_count: u32,
     ) -> Self {
         let colored_shader = device.create_shader_module(wgpu::include_wgsl!(
             "../../shaders/colored_line_shader.wgsl"
@@ -59,7 +63,7 @@ impl ShapesPipeline {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 4,
+                count: sample_count,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -93,22 +97,14 @@ impl ShapesPipeline {
         system: &System,
     ) {
         let (colored_verts, colored_ranges) = system.colored_shape_points();
-        let vertices: Vec<ColoredVertex> = colored_verts
-            .iter()
-            .map(|v| ColoredVertex {
-                position: [v[0], v[1], v[2]],
-                color: [v[3], v[4], v[5]],
-                rotate_with_earth: v[6],
-            })
-            .collect();
 
         Self::set_data_into(
             &mut self.shapes_buffer,
             &mut self.shapes_ranges,
             device,
             queue,
-            vertices,
-            colored_ranges,
+            bytemuck::cast_slice::<[f32; 7], ColoredVertex>(&colored_verts),
+            &colored_ranges,
         );
     }
 
@@ -123,8 +119,14 @@ impl ShapesPipeline {
         let (feature_points, feature_ranges) = system.features_line_points(elapsed);
 
         if orbit_points.is_empty() && feature_points.is_empty() {
-            self.orbit_buffer = None;
             self.orbit_ranges = Vec::new();
+            write_or_grow(
+                &mut self.orbit_buffer,
+                device,
+                queue,
+                &[],
+                "Shapes Buffer",
+            );
             return;
         }
 
@@ -160,8 +162,8 @@ impl ShapesPipeline {
             &mut self.orbit_ranges,
             device,
             queue,
-            vertices,
-            ranges,
+            &vertices,
+            &ranges,
         );
     }
 
@@ -169,8 +171,8 @@ impl ShapesPipeline {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        vertices: Vec<ColoredVertex>,
-        ranges: Vec<(u32, u32)>,
+        vertices: &[ColoredVertex],
+        ranges: &[(u32, u32)],
     ) {
         Self::set_data_into(
             &mut self.orbit_buffer,
@@ -187,27 +189,19 @@ impl ShapesPipeline {
         ranges_slot: &mut Vec<(u32, u32)>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        vertices: Vec<ColoredVertex>,
-        ranges: Vec<(u32, u32)>,
+        vertices: &[ColoredVertex],
+        ranges: &[(u32, u32)],
     ) {
-        if vertices.is_empty() {
-            *buffer_slot = None;
-            ranges_slot.clear();
-            return;
-        }
+        ranges_slot.clear();
+        ranges_slot.extend_from_slice(ranges);
 
-        let size = (std::mem::size_of::<ColoredVertex>() * vertices.len()) as u64;
-        let buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Shapes Buffer"),
-            size,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&vertices));
-
-        *buffer_slot = Some(buffer);
-        *ranges_slot = ranges;
+        write_or_grow(
+            buffer_slot,
+            device,
+            queue,
+            bytemuck::cast_slice(vertices),
+            "Shapes Buffer",
+        );
     }
 
     pub fn render(&self, render_pass: &mut wgpu::RenderPass<'_>, uniforms_bind_group: &BindGroup) {
