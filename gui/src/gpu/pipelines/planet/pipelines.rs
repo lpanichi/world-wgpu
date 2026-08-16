@@ -4,8 +4,6 @@ use iced::{
     widget::shader,
 };
 
-const MSAA_SAMPLE_COUNT: u32 = 4;
-
 use crate::astro::Astral;
 use crate::gpu::pipelines::planet::{
     atmosphere::AtmospherePipeline,
@@ -13,6 +11,7 @@ use crate::gpu::pipelines::planet::{
     camera::Camera,
     clear_quad::ClearQuadPipeline,
     cloud::CloudPipeline,
+    consts::{DEPTH_FORMAT, MSAA_SAMPLE_COUNT},
     moon::MoonPipeline,
     planet::PlanetPipeline,
     resolve_msaa::ResolveMsaaPipeline,
@@ -192,7 +191,7 @@ impl Pipelines {
                 mip_level_count: 1,
                 sample_count: MSAA_SAMPLE_COUNT,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Depth24Plus,
+                format: DEPTH_FORMAT,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             }));

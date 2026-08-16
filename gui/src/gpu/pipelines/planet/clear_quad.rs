@@ -1,5 +1,7 @@
 use iced::wgpu::{self, RenderPipeline, RenderPipelineDescriptor};
 
+use crate::gpu::pipelines::planet::consts::{DEPTH_FORMAT, MSAA_SAMPLE_COUNT};
+
 /// Minimal pipeline that draws one full-screen triangle with a solid colour.
 ///
 /// Replaces the previous `LoadOp::Clear` so that iced container backgrounds
@@ -33,14 +35,14 @@ impl ClearQuadPipeline {
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
+                format: DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Always,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 4,
+                count: MSAA_SAMPLE_COUNT,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },

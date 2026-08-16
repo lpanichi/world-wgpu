@@ -3,6 +3,7 @@ pub mod buffer;
 pub mod camera;
 pub mod clear_quad;
 pub mod cloud;
+pub mod consts;
 pub mod instance_mesh;
 pub mod moon;
 pub mod pipelines;

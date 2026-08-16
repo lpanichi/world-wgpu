@@ -1,5 +1,9 @@
 use crate::{
-    gpu::pipelines::planet::{buffer::write_or_grow, vertex::ColoredVertex},
+    gpu::pipelines::planet::{
+        buffer::write_or_grow,
+        consts::DEPTH_FORMAT,
+        vertex::ColoredVertex,
+    },
     model::system::System,
 };
 
@@ -56,7 +60,7 @@ impl ShapesPipeline {
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: TextureFormat::Depth24Plus,
+                format: DEPTH_FORMAT,
                 depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),

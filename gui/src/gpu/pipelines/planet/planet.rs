@@ -3,7 +3,11 @@ use iced::wgpu::{
     RenderPipelineDescriptor, include_wgsl,
 };
 
-use crate::gpu::pipelines::planet::{texture, vertex::TextureVertex};
+use crate::gpu::pipelines::planet::{
+    consts::{DEPTH_FORMAT, MSAA_SAMPLE_COUNT},
+    texture,
+    vertex::TextureVertex,
+};
 
 pub struct PlanetPipeline {
     vertices_buffer: Buffer,
@@ -94,7 +98,7 @@ impl PlanetPipeline {
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
+                format: DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
@@ -106,7 +110,7 @@ impl PlanetPipeline {
                 },
             }),
             multisample: wgpu::MultisampleState {
-                count: 4,
+                count: MSAA_SAMPLE_COUNT,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
