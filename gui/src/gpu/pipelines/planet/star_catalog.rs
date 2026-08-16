@@ -264,12 +264,30 @@ impl StarCatalogPipeline {
     }
 }
 
-fn load_star_catalog() -> Vec<StarInstance> {
+struct CatalogEntry {
+    ra_rad: Option<f32>,
+    dec_rad: Option<f32>,
+    mag: Option<f32>,
+    ci: Option<f32>,
+    proper: String,
+}
+
+struct Catalog {
+    entries: Vec<CatalogEntry>,
+    has_mag: bool,
+    has_proper: bool,
+}
+
+fn parse_catalog() -> Catalog {
     let mut decoder = GzDecoder::new(STAR_CATALOG_GZ);
     let mut csv_data = String::new();
     if decoder.read_to_string(&mut csv_data).is_err() {
         warn!("Failed to decompress star catalog");
-        return Vec::new();
+        return Catalog {
+            entries: Vec::new(),
+            has_mag: false,
+            has_proper: false,
+        };
     }
 
     let mut reader = csv::ReaderBuilder::new()
@@ -280,7 +298,11 @@ fn load_star_catalog() -> Vec<StarInstance> {
         Ok(h) => h.clone(),
         Err(_) => {
             warn!("Failed to read star catalog headers");
-            return Vec::new();
+            return Catalog {
+                entries: Vec::new(),
+                has_mag: false,
+                has_proper: false,
+            };
         }
     };
 
@@ -292,24 +314,11 @@ fn load_star_catalog() -> Vec<StarInstance> {
     let dec_idx = idx("dec");
     let mag_idx = idx("mag");
     let ci_idx = idx("ci");
+    let proper_idx = idx("proper");
 
-    let Some(mag_idx) = mag_idx else {
-        warn!("Star catalog missing mag column");
-        return Vec::new();
-    };
-
-    let mut stars = Vec::new();
+    let mut entries = Vec::new();
 
     for record in reader.records().flatten() {
-        let mag = record
-            .get(mag_idx)
-            .and_then(|v| v.parse::<f32>().ok())
-            .unwrap_or(99.0);
-
-        if !mag.is_finite() || !(-1.5..=MAX_VISIBLE_MAGNITUDE).contains(&mag) {
-            continue;
-        }
-
         let ra_rad = if let Some(i) = rarad_idx {
             record.get(i).and_then(|v| v.parse::<f32>().ok())
         } else if let Some(i) = ra_idx {
@@ -332,9 +341,53 @@ fn load_star_catalog() -> Vec<StarInstance> {
             None
         };
 
-        let (ra, dec) = match (ra_rad, dec_rad) {
-            (Some(ra), Some(dec)) => (ra, dec),
-            _ => continue,
+        let mag = mag_idx.and_then(|i| record.get(i)).and_then(|v| v.parse::<f32>().ok());
+        let ci = ci_idx
+            .and_then(|i| record.get(i))
+            .and_then(|v| v.parse::<f32>().ok());
+        let proper = proper_idx
+            .map(|i| record.get(i).unwrap_or("").trim().to_string())
+            .unwrap_or_default();
+
+        entries.push(CatalogEntry {
+            ra_rad,
+            dec_rad,
+            mag,
+            ci,
+            proper,
+        });
+    }
+
+    Catalog {
+        entries,
+        has_mag: mag_idx.is_some(),
+        has_proper: proper_idx.is_some(),
+    }
+}
+
+fn star_catalog() -> &'static Catalog {
+    static CATALOG: std::sync::OnceLock<Catalog> = std::sync::OnceLock::new();
+    CATALOG.get_or_init(parse_catalog)
+}
+
+fn load_star_catalog() -> Vec<StarInstance> {
+    let catalog = star_catalog();
+    if !catalog.has_mag {
+        warn!("Star catalog missing mag column");
+        return Vec::new();
+    }
+
+    let mut stars = Vec::new();
+
+    for entry in &catalog.entries {
+        let mag = entry.mag.unwrap_or(99.0);
+
+        if !mag.is_finite() || !(-1.5..=MAX_VISIBLE_MAGNITUDE).contains(&mag) {
+            continue;
+        }
+
+        let (Some(ra), Some(dec)) = (entry.ra_rad, entry.dec_rad) else {
+            continue;
         };
 
         let cos_dec = dec.cos();
@@ -343,10 +396,7 @@ fn load_star_catalog() -> Vec<StarInstance> {
         let intensity = (10.0_f32).powf(-0.32 * (mag - 0.5)).clamp(0.14, 2.2);
         let size_px = (1.9 - 0.14 * mag).clamp(0.9, 4.2);
 
-        let ci = ci_idx
-            .and_then(|i| record.get(i))
-            .and_then(|v| v.parse::<f32>().ok())
-            .unwrap_or(0.65);
+        let ci = entry.ci.unwrap_or(0.65);
         let color = color_from_bv(ci);
 
         stars.push(StarInstance {
@@ -377,73 +427,26 @@ fn color_from_bv(bv: f32) -> [f32; 3] {
 
 /// Retrieves the directions of stars that have proper names in the catalog.
 pub fn get_named_stars() -> Vec<(String, [f32; 3])> {
-    let mut decoder = flate2::read::GzDecoder::new(STAR_CATALOG_GZ);
-    let mut csv_data = String::new();
-    if std::io::Read::read_to_string(&mut decoder, &mut csv_data).is_err() {
-        log::warn!("Failed to decompress star catalog");
+    let catalog = star_catalog();
+    if !catalog.has_proper {
         return Vec::new();
     }
 
-    let mut reader = csv::ReaderBuilder::new()
-        .has_headers(true)
-        .from_reader(csv_data.as_bytes());
-
-    let headers = match reader.headers() {
-        Ok(h) => h.clone(),
-        Err(_) => {
-            log::warn!("Failed to read star catalog headers");
-            return Vec::new();
-        }
-    };
-
-    let idx = |name: &str| headers.iter().position(|h| h == name);
-
-    let rarad_idx = idx("rarad");
-    let decrad_idx = idx("decrad");
-    let ra_idx = idx("ra");
-    let dec_idx = idx("dec");
-    let proper_idx = idx("proper");
-
-    let Some(proper_idx) = proper_idx else {
-        return Vec::new();
-    };
-
     let mut named_stars = Vec::new();
 
-    for record in reader.records().flatten() {
-        let proper = record.get(proper_idx).unwrap_or("").trim();
-        if proper.is_empty() {
+    for entry in &catalog.entries {
+        if entry.proper.is_empty() {
             continue;
         }
 
-        let ra_rad = if let Some(i) = rarad_idx {
-            record.get(i).and_then(|v| v.parse::<f32>().ok())
-        } else if let Some(i) = ra_idx {
-            record
-                .get(i)
-                .and_then(|v| v.parse::<f32>().ok())
-                .map(|hours| hours * std::f32::consts::TAU / 24.0)
-        } else {
-            None
+        let (Some(ra), Some(dec)) = (entry.ra_rad, entry.dec_rad) else {
+            continue;
         };
 
-        let dec_rad = if let Some(i) = decrad_idx {
-            record.get(i).and_then(|v| v.parse::<f32>().ok())
-        } else if let Some(i) = dec_idx {
-            record
-                .get(i)
-                .and_then(|v| v.parse::<f32>().ok())
-                .map(|deg| deg * std::f32::consts::TAU / 360.0)
-        } else {
-            None
-        };
-
-        if let (Some(ra), Some(dec)) = (ra_rad, dec_rad) {
-            let x = dec.cos() * ra.cos();
-            let y = dec.cos() * ra.sin();
-            let z = dec.sin();
-            named_stars.push((proper.to_string(), [x, y, z]));
-        }
+        let x = dec.cos() * ra.cos();
+        let y = dec.cos() * ra.sin();
+        let z = dec.sin();
+        named_stars.push((entry.proper.clone(), [x, y, z]));
     }
 
     named_stars
