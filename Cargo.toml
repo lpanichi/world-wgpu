@@ -2,18 +2,6 @@
 resolver = "3"
 members = ["gui", "geometry", "examples/*"]
 
-[package]
-name = "world-wgpu"
-version = "0.1.0"
-edition = "2024"
-authors = [""]
-license = "Proprietary"
-repository = ""
-homepage = ""
-categories = ["gui", "space"]
-keywords = ["gui", "space"]
-rust-version = "1.93"
-
 [workspace.package]
 version = "0.1.0"
 authors = [""]
@@ -44,64 +32,5 @@ image = "0.25.9"
 rand = "0.9.2"
 iced_font_awesome = "0.4.2"
 
-[dependencies]
-gui = { path = "gui" }
-geometry = { path = "geometry" }
-
-iced = { version = "0.14.0", default-features = true, features = ["smol"] }
-winit = { version = "0.30.12", features = ["rwh_05"] }
-env_logger = "0.11.8"
-log = "0.4.29"
-pollster = "0.4.0"
-bytemuck = { version = "1.25.0", features = ["derive"] }
-anyhow = "1.0.100"
-assertor = "0.0.4"
-chrono = "0.4"
-nalgebra = "0.34.1"
-mockall = "0.14.0"
-image = "0.25.9"
-rand = "0.9.2"
-
-
-[[example]]
-name = "simulation"
-path = "examples/simulation/src/main.rs"
-
-[[example]]
-name = "vernal_equinox"
-path = "examples/vernal_equinox/src/main.rs"
-
-[[example]]
-name = "summer_solstice"
-path = "examples/summer_solstice/src/main.rs"
-
-[[example]]
-name = "moon_phases"
-path = "examples/moon_phases/src/main.rs"
-
-[[example]]
-name = "earth_texture"
-path = "examples/earth_texture/src/main.rs"
-
-[[example]]
-name = "orbit_elements"
-path = "examples/orbit_elements/src/main.rs"
-
-[[example]]
-name = "frame_validation"
-path = "examples/frame_validation/src/main.rs"
-
-[[example]]
-name = "shapes"
-path = "examples/shapes/src/main.rs"
-
 [workspace.lints.clippy]
 large-enum-variant = "allow"
-
-[[example]]
-name = "autumnal_equinox"
-path = "examples/autumnal_equinox/src/main.rs"
-
-[[example]]
-name = "winter_solstice"
-path = "examples/winter_solstice/src/main.rs"

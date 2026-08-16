@@ -9,7 +9,12 @@ use geometry::tesselation::build_sphere;
 use nalgebra::{Matrix4, Rotation3, Unit, Vector3};
 use std::sync::Arc;
 
-pub const EARTH_RADIUS_KM: f32 = 6371.0;
+/// Earth radius in kilometers (WGS84 equatorial, single source of truth).
+///
+/// Re-export of `astro::constants::EARTH_RADIUS` so rendering geometry (planet
+/// mesh, atmosphere, ground stations, geo conversions) and orbital mechanics
+/// (J2 precession, sun-synchronous orbits) always use the same constant.
+pub use crate::astro::constants::EARTH_RADIUS as EARTH_RADIUS_KM;
 
 #[derive(Debug, Clone)]
 pub struct System {

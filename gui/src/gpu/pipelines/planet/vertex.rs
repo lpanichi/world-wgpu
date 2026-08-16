@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn test_uv_triangle_span_at_most_half_round() {
-        let vertices = into_textured_vertex(build_sphere(), 6371.0);
+        let vertices = into_textured_vertex(build_sphere(), crate::model::system::EARTH_RADIUS_KM);
         assert!(vertices.len() > 0);
 
         for tri_idx in 0..(vertices.len() / 3) {
@@ -302,7 +302,10 @@ mod tests {
 
     #[test]
     fn test_uv_triangles_no_large_overlap() {
-        let in_vertices = into_textured_vertex(build_sphere_icosahedron(2), 6371.0);
+        let in_vertices = into_textured_vertex(
+            build_sphere_icosahedron(2),
+            crate::model::system::EARTH_RADIUS_KM,
+        );
         let tri_count = in_vertices.len() / 3;
         let epsilon = 1e-6;
 

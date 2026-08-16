@@ -15,7 +15,7 @@ check:
 run: $(EXAMPLES)
 
 $(EXAMPLES):
-	cargo run --example $@
+	cargo run -p $@
 
 clean:
 	cargo clean
