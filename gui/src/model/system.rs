@@ -360,17 +360,10 @@ impl System {
         max_lon_deg: f32,
         segments_per_edge: usize,
     ) -> Vec<[f32; 3]> {
-        let r = EARTH_RADIUS_KM;
         let mut points = Vec::new();
 
         let lat_lon_to_xyz = |lat_deg: f32, lon_deg: f32| -> [f32; 3] {
-            let lat = lat_deg.to_radians();
-            let lon =
-                (lon_deg.to_radians() + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU);
-            let x = r * lat.cos() * lon.cos();
-            let y = r * lat.cos() * lon.sin();
-            let z = r * lat.sin();
-            [x, y, z]
+            crate::model::geo::lat_lon_to_ecef(lat_deg, lon_deg)
         };
 
         // Bottom edge (min_lat, min_lon -> max_lon)

@@ -13,7 +13,7 @@
 use chrono::{TimeZone, Utc};
 use gui::gpu::pipelines::planet::{camera::Camera, satellite::SatelliteRenderMode};
 use gui::model::ground_station::GroundStation;
-use gui::model::shapes::lat_lon_to_ecef;
+use gui::model::geo::lat_lon_to_ecef;
 use gui::model::system::System;
 use gui::model::FrameMode;
 use gui::simulation::Simulation as ProgramSimulation;

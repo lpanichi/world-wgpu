@@ -3,7 +3,7 @@ pub mod frame;
 pub mod line;
 pub mod orbital_elements;
 pub mod point;
-use crate::model::{FrameMode, system::EARTH_RADIUS_KM};
+use crate::model::FrameMode;
 pub use frame::Frame;
 pub use line::Line;
 pub use orbital_elements::OrbitalElements;
@@ -137,28 +137,4 @@ fn merge_text_mesh(
     for &(start, len) in &tm.ranges {
         ranges.push((start + offset, len));
     }
-}
-
-/// Convert geodetic lat/lon (degrees) to ECEF Cartesian coordinates (km).
-/// This uses the same convention as `GroundStation::cartesian()` — lon=0 is shifted by PI
-/// to match the Earth texture UV mapping.
-pub fn lat_lon_to_ecef(lat_deg: f32, lon_deg: f32) -> [f32; 3] {
-    let lat = lat_deg.to_radians();
-    let lon = (lon_deg.to_radians() + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU);
-    let x = lat.cos() * lon.cos();
-    let y = lat.cos() * lon.sin();
-    let z = lat.sin();
-    let r = EARTH_RADIUS_KM;
-    [x * r, y * r, z * r]
-}
-
-/// Same as `lat_lon_to_ecef` but f64 precision.
-pub fn lat_lon_to_ecef_f64(lat_deg: f64, lon_deg: f64) -> [f64; 3] {
-    let lat = lat_deg.to_radians();
-    let lon = (lon_deg.to_radians() + std::f64::consts::PI).rem_euclid(2.0 * std::f64::consts::PI);
-    let x = lat.cos() * lon.cos();
-    let y = lat.cos() * lon.sin();
-    let z = lat.sin();
-    let r = EARTH_RADIUS_KM as f64;
-    [x * r, y * r, z * r]
 }

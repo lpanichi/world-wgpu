@@ -50,7 +50,7 @@ impl Shapes {
 
     /// Add a point on the Earth surface at the given lat/lon (degrees).
     pub fn add_surface_point(&mut self, lat_deg: f32, lon_deg: f32, label: impl Into<String>) {
-        let pos = super::lat_lon_to_ecef(lat_deg, lon_deg);
+        let pos = crate::model::geo::lat_lon_to_ecef(lat_deg, lon_deg);
         self.add_point(FrameMode::Ecef, pos, label);
     }
 
@@ -63,7 +63,7 @@ impl Shapes {
         altitude: f32,
         label: impl Into<String>,
     ) {
-        let pos = super::lat_lon_to_ecef(lat_deg, lon_deg);
+        let pos = crate::model::geo::lat_lon_to_ecef(lat_deg, lon_deg);
         self.add_colored_point(FrameMode::Ecef, pos, color, altitude, label);
     }
 }

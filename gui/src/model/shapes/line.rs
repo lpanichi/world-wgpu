@@ -99,7 +99,7 @@ impl Shapes {
         extension: f32,
         label: impl Into<String>,
     ) {
-        let pos = super::lat_lon_to_ecef(lat_deg, lon_deg);
+        let pos = crate::model::geo::lat_lon_to_ecef(lat_deg, lon_deg);
         let dir = Vector3::new(pos[0], pos[1], pos[2]).normalize();
         let end = dir * (EARTH_RADIUS_KM + extension);
         self.add_line(FrameMode::Ecef, [0.0, 0.0, 0.0], end.into(), label);
@@ -114,7 +114,7 @@ impl Shapes {
         color: [f32; 3],
         label: impl Into<String>,
     ) {
-        let pos = super::lat_lon_to_ecef(lat_deg, lon_deg);
+        let pos = crate::model::geo::lat_lon_to_ecef(lat_deg, lon_deg);
         let dir = Vector3::new(pos[0], pos[1], pos[2]).normalize();
         let end = dir * (EARTH_RADIUS_KM + extension);
         self.add_colored_line(FrameMode::Ecef, [0.0, 0.0, 0.0], end.into(), color, label);

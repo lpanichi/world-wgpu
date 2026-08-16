@@ -1,5 +1,3 @@
-use nalgebra::Vector3;
-
 #[derive(Debug, Clone)]
 pub struct GroundStation {
     pub name: String,
@@ -27,19 +25,10 @@ impl GroundStation {
     }
 
     pub fn cartesian(&self) -> [f32; 3] {
-        // Planet radius is in kilometers via Simulation constant.
-        let lat = self.latitude_deg.to_radians();
-        // Planet UV mapping uses lon=0 at the texture seam, so shift by PI to align
-        // geographic longitudes with the current Earth texture orientation.
-        let lon = (self.longitude_deg.to_radians() + std::f32::consts::PI)
-            .rem_euclid(2.0 * std::f32::consts::PI);
-
-        let x = lat.cos() * lon.cos();
-        let y = lat.cos() * lon.sin();
-        let z = lat.sin();
-
-        let base = Vector3::new(x, y, z) * crate::model::system::EARTH_RADIUS_KM;
-        let offset = base.normalize() * self.height;
-        (base + offset).into()
+        crate::model::geo::lat_lon_to_ecef_at_altitude(
+            self.latitude_deg,
+            self.longitude_deg,
+            self.height,
+        )
     }
 }
