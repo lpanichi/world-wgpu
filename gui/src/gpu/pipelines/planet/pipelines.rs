@@ -135,7 +135,7 @@ impl Pipelines {
         }
 
         let planet_vertices = system.planet_triangles();
-        self.planet.set_vertices(device, queue, &planet_vertices);
+        self.planet.set_vertices(device, queue, planet_vertices);
         self.initialized = true;
     }
 

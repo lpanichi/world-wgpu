@@ -7,6 +7,7 @@ use crate::{
 };
 use geometry::tesselation::build_sphere;
 use nalgebra::{Matrix4, Rotation3, Unit, Vector3};
+use std::sync::Arc;
 
 pub const EARTH_RADIUS_KM: f32 = 6371.0;
 
@@ -14,7 +15,8 @@ pub const EARTH_RADIUS_KM: f32 = 6371.0;
 pub struct System {
     pub orbits: Vec<Orbit>,
     pub ground_stations: Vec<GroundStation>,
-    pub planet_triangles: Vec<TextureVertex>,
+    /// Static planet mesh shared across clones so per-frame `System::clone` is cheap.
+    pub planet_triangles: Arc<Vec<TextureVertex>>,
     pub simulation_time: DateTime<Utc>,
     pub start_time: DateTime<Utc>,
     pub last_tick_time: DateTime<Utc>,
@@ -30,7 +32,7 @@ pub struct System {
 impl System {
     pub fn builder() -> SimulationBuilder {
         let sphere = build_sphere();
-        let planet_triangles = into_textured_vertex(sphere, EARTH_RADIUS_KM);
+        let planet_triangles = Arc::new(into_textured_vertex(sphere, EARTH_RADIUS_KM));
 
         SimulationBuilder {
             orbits: Vec::new(),
@@ -81,7 +83,7 @@ impl System {
             .to_string()
     }
 
-    pub fn planet_triangles(&self) -> &Vec<TextureVertex> {
+    pub fn planet_triangles(&self) -> &[TextureVertex] {
         &self.planet_triangles
     }
 
@@ -477,7 +479,7 @@ mod tests {
 pub struct SimulationBuilder {
     orbits: Vec<Orbit>,
     ground_stations: Vec<GroundStation>,
-    planet_triangles: Vec<TextureVertex>,
+    planet_triangles: Arc<Vec<TextureVertex>>,
 }
 
 impl SimulationBuilder {
