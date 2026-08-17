@@ -33,9 +33,20 @@ impl Astral {
         let hour_angle = (solar_time - 12.0) * 15.0_f64.to_radians();
         let lat = self.latitude.to_radians();
 
-        let elevation = (lat.sin() * decl.sin() + lat.cos() * decl.cos() * hour_angle.cos()).asin();
-        let azimuth =
-            ((decl.sin() - lat.sin() * elevation.sin()) / (lat.cos() * elevation.cos())).acos();
+        let elevation = (lat.sin() * decl.sin() + lat.cos() * decl.cos() * hour_angle.cos())
+            .clamp(-1.0, 1.0)
+            .asin();
+
+        // Azimuth is undefined at the poles (cos(lat) = 0) and ill-conditioned when the
+        // sun is at the zenith (cos(elevation) = 0); guard against NaN / division by zero.
+        let denominator = lat.cos() * elevation.cos();
+        let azimuth = if denominator.abs() < 1e-9 {
+            0.0
+        } else {
+            let arg =
+                ((decl.sin() - lat.sin() * elevation.sin()) / denominator).clamp(-1.0, 1.0);
+            arg.acos()
+        };
 
         (azimuth, elevation)
     }
@@ -618,5 +629,27 @@ mod tests {
             el_deg < 0.0,
             "Equator midnight elevation = {el_deg:.1}°, expected negative"
         );
+    }
+
+    #[test]
+    fn test_sun_position_poles_no_nan() {
+        // At the poles cos(lat) = 0, which used to produce NaN in the azimuth.
+        let north_pole = Astral::create(90.0, 0.0);
+        let south_pole = Astral::create(-90.0, 0.0);
+
+        for day in [80, 172, 265, 355] {
+            for hour in [0.0, 6.0, 12.0, 18.0] {
+                let (az_n, el_n) = north_pole.sun_position(day, hour);
+                let (az_s, el_s) = south_pole.sun_position(day, hour);
+                assert!(az_n.is_finite(), "N pole day {day} h {hour}: az = {az_n}");
+                assert!(el_n.is_finite(), "N pole day {day} h {hour}: el = {el_n}");
+                assert!(az_s.is_finite(), "S pole day {day} h {hour}: az = {az_s}");
+                assert!(el_s.is_finite(), "S pole day {day} h {hour}: el = {el_s}");
+            }
+        }
+
+        // Azimuth at the pole should be defined (0.0 in the fallback branch).
+        let (az, _) = north_pole.sun_position(172, 12.0);
+        assert_eq!(az, 0.0);
     }
 }
