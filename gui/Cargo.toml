@@ -18,17 +18,12 @@ geometry.workspace = true
 chrono = "0.4"
 
 iced.workspace = true
-winit.workspace = true
 env_logger.workspace = true
 log.workspace = true
-pollster.workspace = true
 bytemuck.workspace = true
 anyhow.workspace = true
-assertor.workspace = true
 nalgebra.workspace = true
-mockall.workspace = true
 image.workspace = true
-rand.workspace = true
 csv = "1.3"
 flate2 = "1.0"
 iced_font_awesome.workspace = true

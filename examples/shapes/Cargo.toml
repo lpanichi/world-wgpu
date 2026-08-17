@@ -11,6 +11,5 @@ gui.workspace = true
 iced.workspace = true
 nalgebra.workspace = true
 bytemuck.workspace = true
-pollster.workspace = true
 env_logger.workspace = true
 log.workspace = true
