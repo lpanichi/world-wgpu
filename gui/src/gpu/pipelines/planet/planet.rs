@@ -10,7 +10,7 @@ use crate::gpu::pipelines::planet::{
 };
 
 pub struct PlanetPipeline {
-    vertices_buffer: Buffer,
+    vertices_buffer: Option<Buffer>,
     texture_bind_group: BindGroup,
     pipeline: RenderPipeline,
     planet_vertices_count: u32,
@@ -24,13 +24,6 @@ impl PlanetPipeline {
         uniform_bind_group_layout: &BindGroupLayout,
     ) -> Self {
         let shader = device.create_shader_module(include_wgsl!("../../shaders/planet_shader.wgsl"));
-
-        let vertices_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Vertex Buffer"),
-            size: std::mem::size_of::<TextureVertex>() as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -128,7 +121,7 @@ impl PlanetPipeline {
             cache: None,
         });
         Self {
-            vertices_buffer,
+            vertices_buffer: None,
             texture_bind_group,
             pipeline,
             planet_vertices_count: 0,
@@ -149,16 +142,20 @@ impl PlanetPipeline {
         });
         queue.write_buffer(&vertices_buffer, 0, bytemuck::cast_slice(planet_vertices));
 
-        self.vertices_buffer = vertices_buffer;
+        self.vertices_buffer = Some(vertices_buffer);
         self.planet_vertices_count = planet_vertices.len() as u32;
     }
 
     pub fn render(&self, render_pass: &mut wgpu::RenderPass<'_>, uniforms_bind_group: &BindGroup) {
+        let Some(vertices_buffer) = self.vertices_buffer.as_ref() else {
+            return;
+        };
+
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
         render_pass.set_bind_group(1, uniforms_bind_group, &[]);
 
-        render_pass.set_vertex_buffer(0, self.vertices_buffer.slice(..));
+        render_pass.set_vertex_buffer(0, vertices_buffer.slice(..));
         render_pass.draw(0..self.planet_vertices_count, 0..1);
     }
 }

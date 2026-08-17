@@ -64,8 +64,8 @@ impl Camera {
         proj.into_inner() * view.to_homogeneous()
     }
 
-    pub fn change_aspect(&mut self, width: f32, heigth: f32) {
-        self.aspect = width / heigth;
+    pub fn change_aspect(&mut self, width: f32, height: f32) {
+        self.aspect = width / height;
     }
 
     pub fn move_eye(&mut self, isometry: &Isometry3<f32>) {
