@@ -169,16 +169,15 @@ impl Textured {
                     self.program.tick();
                 }
                 // Update camera follow
-                if let Some((orbit_idx, sat_idx)) = self.follow_satellite {
-                    if let Some(orbit) = self.program.system.orbits.get(orbit_idx) {
-                        if let Some(sat) = orbit.satellites.get(sat_idx) {
-                            let elapsed = self.program.system.elapsed_seconds();
-                            let pos = orbit.position(elapsed, sat);
-                            let sat_pos = nalgebra::Point3::new(pos[0], pos[1], pos[2]);
-                            self.program.camera.eye = sat_pos + self.follow_offset;
-                            self.program.camera.target = sat_pos;
-                        }
-                    }
+                if let Some((orbit_idx, sat_idx)) = self.follow_satellite
+                    && let Some(orbit) = self.program.system.orbits.get(orbit_idx)
+                    && let Some(sat) = orbit.satellites.get(sat_idx)
+                {
+                    let elapsed = self.program.system.elapsed_seconds();
+                    let pos = orbit.position(elapsed, sat);
+                    let sat_pos = nalgebra::Point3::new(pos[0], pos[1], pos[2]);
+                    self.program.camera.eye = sat_pos + self.follow_offset;
+                    self.program.camera.target = sat_pos;
                 }
                 // Update KPI distance history
                 if let (Ok(si), Ok(oi), Ok(sati)) = (
@@ -504,10 +503,10 @@ impl Textured {
             }
             Message::DeleteSatellite(orbit_index, sat_index) => {
                 self.modify_model(|model| {
-                    if let Some(orbit) = model.orbits.get_mut(orbit_index) {
-                        if sat_index < orbit.satellites.len() {
-                            orbit.satellites.remove(sat_index);
-                        }
+                    if let Some(orbit) = model.orbits.get_mut(orbit_index)
+                        && sat_index < orbit.satellites.len()
+                    {
+                        orbit.satellites.remove(sat_index);
                     }
                 });
             }
@@ -528,32 +527,32 @@ impl Textured {
                 }
             }
             Message::OrbitFovAngleInput(idx, value) => {
-                if let Ok(angle) = value.parse::<f32>() {
-                    if let Some(orbit) = self.program.system.orbits.get_mut(idx) {
-                        orbit.fov_half_angle_deg = angle.clamp(0.1, 89.0);
-                    }
+                if let Ok(angle) = value.parse::<f32>()
+                    && let Some(orbit) = self.program.system.orbits.get_mut(idx)
+                {
+                    orbit.fov_half_angle_deg = angle.clamp(0.1, 89.0);
                 }
             }
             Message::OrbitInclinationEdit(idx, value) => {
-                if let Ok(inc) = value.parse::<f32>() {
-                    if let Some(orbit) = self.program.system.orbits.get_mut(idx) {
-                        orbit.inclination_deg = inc;
-                    }
+                if let Ok(inc) = value.parse::<f32>()
+                    && let Some(orbit) = self.program.system.orbits.get_mut(idx)
+                {
+                    orbit.inclination_deg = inc;
                 }
             }
             Message::OrbitRaanEdit(idx, value) => {
-                if let Ok(raan) = value.parse::<f32>() {
-                    if let Some(orbit) = self.program.system.orbits.get_mut(idx) {
-                        orbit.raan_deg = raan;
-                    }
+                if let Ok(raan) = value.parse::<f32>()
+                    && let Some(orbit) = self.program.system.orbits.get_mut(idx)
+                {
+                    orbit.raan_deg = raan;
                 }
             }
             // Manager: tune station
             Message::StationMinElevationInput(idx, value) => {
-                if let Ok(elev) = value.parse::<f32>() {
-                    if let Some(station) = self.program.system.ground_stations.get_mut(idx) {
-                        station.min_elevation_deg = elev.clamp(0.0, 90.0);
-                    }
+                if let Ok(elev) = value.parse::<f32>()
+                    && let Some(station) = self.program.system.ground_stations.get_mut(idx)
+                {
+                    station.min_elevation_deg = elev.clamp(0.0, 90.0);
                 }
             }
             Message::ToggleStationCone(idx) => {
@@ -566,14 +565,14 @@ impl Textured {
                 match target {
                     Some((o, s)) => {
                         // Initialize offset along radial direction from satellite
-                        if let Some(orbit) = self.program.system.orbits.get(o) {
-                            if let Some(sat) = orbit.satellites.get(s) {
-                                let elapsed = self.program.system.elapsed_seconds();
-                                let pos = orbit.position(elapsed, sat);
-                                let radial =
-                                    nalgebra::Vector3::new(pos[0], pos[1], pos[2]).normalize();
-                                self.follow_offset = radial * 200.0;
-                            }
+                        if let Some(orbit) = self.program.system.orbits.get(o)
+                            && let Some(sat) = orbit.satellites.get(s)
+                        {
+                            let elapsed = self.program.system.elapsed_seconds();
+                            let pos = orbit.position(elapsed, sat);
+                            let radial =
+                                nalgebra::Vector3::new(pos[0], pos[1], pos[2]).normalize();
+                            self.follow_offset = radial * 200.0;
                         }
                         self.follow_satellite = Some((o, s));
                         self.status_message = format!("Following orbit {} sat {}", o, s);
@@ -710,10 +709,10 @@ impl Textured {
     fn handle_event(&mut self, event: iced::event::Event) {
         match event {
             iced::event::Event::Window(iced::window::Event::Resized(size)) => {
-                self.viewport_size = (size.width as f32, size.height as f32);
+                self.viewport_size = (size.width, size.height);
                 self.program
                     .camera
-                    .change_aspect(size.width as f32, size.height as f32);
+                    .change_aspect(size.width, size.height);
                 info!(
                     "Window resized: width={} height={}, updated camera aspect={:.3}",
                     size.width, size.height, self.program.camera.aspect
@@ -760,39 +759,50 @@ impl Textured {
             iced::event::Event::Mouse(iced::mouse::Event::ButtonReleased(
                 iced::mouse::Button::Left,
             )) => {
-                if let Some(cursor_pos) = self.cursor_position {
-                    if let Some((x, y, w, h)) = self.shader_pane_region() {
-                        if cursor_pos.0 >= x
-                            && cursor_pos.0 <= x + w
-                            && cursor_pos.1 >= y
-                            && cursor_pos.1 <= y + h
-                        {
-                            let local_pos = (cursor_pos.0 - x, cursor_pos.1 - y);
+                if let Some(cursor_pos) = self.cursor_position
+                    && let Some((x, y, w, h)) = self.shader_pane_region()
+                    && cursor_pos.0 >= x
+                    && cursor_pos.0 <= x + w
+                    && cursor_pos.1 >= y
+                    && cursor_pos.1 <= y + h
+                {
+                    let local_pos = (cursor_pos.0 - x, cursor_pos.1 - y);
 
-                            if let Some((origin, direction, cursor_ndc)) =
-                                self.program.world_ray_from_cursor(local_pos, (w, h))
-                            {
-                                let (selected, hit_distance) =
-                                    self.program
-                                        .pick_object(origin, direction, cursor_ndc, (w, h));
-                                self.update(Message::OnObjectSelected(selected, hit_distance));
-                            }
-                        }
+                    if let Some((origin, direction, cursor_ndc)) =
+                        self.program.world_ray_from_cursor(local_pos, (w, h))
+                    {
+                        let (selected, hit_distance) =
+                            self.program
+                                .pick_object(origin, direction, cursor_ndc, (w, h));
+                        self.update(Message::OnObjectSelected(selected, hit_distance));
                     }
                 }
             }
             iced::event::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
-                let step_km = 50.0;
-                let amount = match delta {
-                    iced::mouse::ScrollDelta::Lines { y, .. } => y.signum() * step_km,
-                    iced::mouse::ScrollDelta::Pixels { y, .. } => y.signum() * step_km,
+                // Fractional zoom per wheel notch; exponential so it stays smooth at
+                // any range. Pixel deltas are scaled down for fine trackpad control.
+                let zoom_step = 0.15;
+                let pixel_divisor = 10.0;
+                let y = match delta {
+                    iced::mouse::ScrollDelta::Lines { y, .. } => y,
+                    iced::mouse::ScrollDelta::Pixels { y, .. } => y / pixel_divisor,
                 };
+                let factor = (-y * zoom_step).exp();
+
+                const MIN_ALTITUDE: f32 = 100.0;
+                const MIN_FOLLOW_DIST: f32 = 10.0;
+
                 if self.follow_satellite.is_some() {
                     let dist = self.follow_offset.norm();
-                    let new_dist = (dist - amount).max(10.0);
+                    let new_dist = (dist * factor).max(MIN_FOLLOW_DIST);
                     self.follow_offset = self.follow_offset.normalize() * new_dist;
                 } else {
-                    self.program.camera.dolly(amount);
+                    let direction = self.program.camera.target - self.program.camera.eye;
+                    let dist = direction.norm();
+                    let min_dist = EARTH_RADIUS_KM + MIN_ALTITUDE;
+                    let new_dist = (dist * factor).max(min_dist);
+                    self.program.camera.eye =
+                        self.program.camera.target - direction.normalize() * new_dist;
                 }
             }
             _ => (),
@@ -975,13 +985,13 @@ impl Textured {
         for (i, orbit) in meta.orbits.iter().enumerate() {
             items.push(orbit_manager_item(
                 i,
-                (orbit.semi_major_axis - EARTH_RADIUS_KM) as f32,
-                orbit.inclination_deg as f32,
+                orbit.semi_major_axis - EARTH_RADIUS_KM,
+                orbit.inclination_deg,
                 orbit.satellites.len(),
                 orbit.show_orbit,
                 orbit.show_fov,
                 orbit.fill_fov,
-                orbit.fov_half_angle_deg as f32,
+                orbit.fov_half_angle_deg,
                 Message::DeleteOrbit(i),
                 Message::ToggleOrbitVisible(i),
                 Message::ToggleOrbitFov(i),
@@ -989,7 +999,7 @@ impl Textured {
                 move |v| Message::OrbitFovAngleInput(i, v),
                 move |v| Message::OrbitInclinationEdit(i, v),
                 move |v| Message::OrbitRaanEdit(i, v),
-                orbit.raan_deg as f32,
+                orbit.raan_deg,
             ));
 
             // Satellite sub-items
@@ -1006,10 +1016,10 @@ impl Textured {
         for (i, station) in meta.ground_stations.iter().enumerate() {
             items.push(station_manager_item(
                 &station.name,
-                station.latitude_deg as f32,
-                station.longitude_deg as f32,
+                station.latitude_deg,
+                station.longitude_deg,
                 station.show_cone,
-                station.min_elevation_deg as f32,
+                station.min_elevation_deg,
                 Message::DeleteStation(i),
                 Message::ToggleStationCone(i),
                 move |v| Message::StationMinElevationInput(i, v),

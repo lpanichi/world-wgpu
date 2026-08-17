@@ -39,6 +39,12 @@ impl SatelliteUniforms {
     }
 }
 
+impl Default for SatelliteUniforms {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SatelliteRenderMode {
     Cube,

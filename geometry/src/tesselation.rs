@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn test_build_sphere_outward_orientation() {
         let sphere = build_sphere();
-        assert!(sphere.len() > 0);
+        assert!(!sphere.is_empty());
 
         for (idx, tri) in sphere.iter().enumerate() {
             let edge1 = tri[1] - tri[0];

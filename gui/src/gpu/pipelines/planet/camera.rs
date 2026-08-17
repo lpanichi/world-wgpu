@@ -87,6 +87,19 @@ impl Camera {
         self.refresh_up();
     }
 
+    /// Move the camera in its view plane by fixed `horizontal`/`vertical` offsets.
+    pub fn pan(&mut self, horizontal: f32, vertical: f32) {
+        let view_dir = (self.target - self.eye).normalize();
+        let mut right = view_dir.cross(&self.up.into_inner());
+        if right.norm_squared() < 1e-6 {
+            right = Vector3::new(1.0, 0.0, 0.0);
+        }
+        let right = right.normalize();
+        let translation = right * horizontal + self.up.into_inner() * vertical;
+        self.eye += translation;
+        self.target += translation;
+    }
+
     pub fn transform(&mut self, isometry: &Isometry3<f32>) {
         self.eye = isometry * self.eye;
         self.target = isometry * self.target;

@@ -33,6 +33,12 @@ impl StationUniforms {
     }
 }
 
+impl Default for StationUniforms {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct StationPipeline {
     cube_pipeline: RenderPipeline,
     cone_pipeline: RenderPipeline,

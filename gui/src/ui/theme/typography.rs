@@ -1,7 +1,7 @@
-/// Typography tokens following Ant Design's type scale,
-/// adapted for desktop density.
-///
-/// All text sizes MUST come from here.
+//! Typography tokens following Ant Design's type scale,
+//! adapted for desktop density.
+//!
+//! All text sizes MUST come from here.
 
 /// Tiny annotation / fine print.
 pub const SIZE_XS: f32 = 10.0;

@@ -151,6 +151,7 @@ pub fn builder_toolbar<'a, M: Clone + 'a>(
 /// Builder panel: orbit creation form.
 ///
 /// Only one primary button ("Create Orbit") per panel.
+#[allow(clippy::too_many_arguments)]
 pub fn orbit_builder_panel<'a, M: Clone + 'a>(
     orbit_name: &str,
     altitude: &str,
@@ -322,6 +323,7 @@ pub fn satellite_builder_panel<'a, M: Clone + 'a>(
 }
 
 /// Builder panel: rectangular surface.
+#[allow(clippy::too_many_arguments)]
 pub fn rect_surface_builder_panel<'a, M: Clone + 'a>(
     min_lat: &str,
     max_lat: &str,
@@ -367,6 +369,7 @@ pub fn rect_surface_builder_panel<'a, M: Clone + 'a>(
 
 /// The persistent simulation controls shown at the top of the sidebar,
 /// above the mode tabs.
+#[allow(clippy::too_many_arguments)]
 pub fn sim_controls_panel<'a, M: Clone + 'a>(
     paused: bool,
     time_scale: f32,
@@ -463,6 +466,7 @@ pub fn sim_controls_panel<'a, M: Clone + 'a>(
 // ---------------------------------------------------------------------------
 
 /// A single orbit entry in the resource manager.
+#[allow(clippy::too_many_arguments)]
 pub fn orbit_manager_item<'a, M: Clone + 'a>(
     index: usize,
     altitude_km: f32,
@@ -547,6 +551,7 @@ pub fn orbit_manager_item<'a, M: Clone + 'a>(
 }
 
 /// A single ground station entry in the resource manager.
+#[allow(clippy::too_many_arguments)]
 pub fn station_manager_item<'a, M: Clone + 'a>(
     name: &str,
     lat: f32,
@@ -613,6 +618,7 @@ pub fn satellite_manager_item<'a, M: Clone + 'a>(
 // ---------------------------------------------------------------------------
 
 /// The KPI dashboard panel with station-satellite distance plot.
+#[allow(clippy::too_many_arguments)]
 pub fn kpi_panel<'a, M: Clone + 'a>(
     station_idx: &str,
     orbit_idx: &str,

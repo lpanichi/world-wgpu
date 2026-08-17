@@ -75,7 +75,7 @@ impl PlanetPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout for planet"),
-            bind_group_layouts: &[&texture_bind_group_layout, &uniform_bind_group_layout],
+            bind_group_layouts: &[&texture_bind_group_layout, uniform_bind_group_layout],
             ..Default::default()
         });
 
@@ -143,7 +143,7 @@ impl PlanetPipeline {
     ) {
         let vertices_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("Vertex Buffer"),
-            size: (planet_vertices.len() * std::mem::size_of::<TextureVertex>()) as u64,
+            size: std::mem::size_of_val(planet_vertices) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });

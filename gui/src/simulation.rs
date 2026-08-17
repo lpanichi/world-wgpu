@@ -12,6 +12,9 @@ use iced::{Rectangle, mouse, wgpu, widget::shader};
 use log::{debug, info};
 use nalgebra::{Isometry3, Point3, Point4, Rotation3, Translation3, Vector3};
 
+/// Ray in world space: `(origin, direction, cursor_ndc)`.
+pub type WorldRay = (Point3<f32>, Vector3<f32>, (f32, f32));
+
 #[derive(Clone, Debug)]
 pub enum SelectedObject {
     Earth,
@@ -116,7 +119,7 @@ impl Simulation {
         let ndc_z = clip.z / clip.w;
 
         // Keep points in front of the near plane and inside [-1,1] clip range.
-        if ndc_z < -1.0 || ndc_z > 1.0 {
+        if !(-1.0..=1.0).contains(&ndc_z) {
             return None;
         }
 
@@ -130,7 +133,7 @@ impl Simulation {
         &self,
         cursor: (f32, f32),
         viewport_size: (f32, f32),
-    ) -> Option<(Point3<f32>, Vector3<f32>, (f32, f32))> {
+    ) -> Option<WorldRay> {
         let (width, height) = viewport_size;
         if width <= 0.0 || height <= 0.0 {
             return None;
@@ -203,10 +206,10 @@ impl Simulation {
                 obj, angle, angular_radius
             );
 
-            if angle <= angular_radius {
-                if angle < best_hit.1 || (angle == best_hit.1 && depth < best_hit.2) {
-                    best_hit = (obj, angle, depth);
-                }
+            if angle <= angular_radius
+                && (angle < best_hit.1 || (angle == best_hit.1 && depth < best_hit.2))
+            {
+                best_hit = (obj, angle, depth);
             }
         };
 

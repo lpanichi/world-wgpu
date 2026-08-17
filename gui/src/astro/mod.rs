@@ -271,7 +271,9 @@ mod tests {
 
         assert!(az.is_finite());
         assert!(el.is_finite());
-        assert!(el >= -std::f64::consts::PI / 2.0 && el <= std::f64::consts::PI / 2.0);
+        assert!(
+            (-std::f64::consts::PI / 2.0..=std::f64::consts::PI / 2.0).contains(&el)
+        );
     }
 
     #[test]

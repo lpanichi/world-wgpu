@@ -28,6 +28,12 @@ impl MoonUniforms {
     }
 }
 
+impl Default for MoonUniforms {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct MoonPipeline {
     pipeline: RenderPipeline,
     vertex_buffer: Buffer,

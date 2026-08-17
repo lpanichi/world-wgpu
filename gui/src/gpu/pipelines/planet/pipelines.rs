@@ -363,15 +363,15 @@ impl Pipelines {
             self.moon.render(&mut render_pass);
 
             // Render filled FOV surfaces using the colored line pipeline
-            if let Some(fov_buffer) = &self.fov_fill_buffer {
-                if self.fov_fill_vertex_count > 0 {
-                    self.shapes.render_with_buffer(
-                        &mut render_pass,
-                        &self.uniforms_bind_group,
-                        fov_buffer,
-                        &[(0, self.fov_fill_vertex_count)],
-                    );
-                }
+            if let Some(fov_buffer) = &self.fov_fill_buffer
+                && self.fov_fill_vertex_count > 0
+            {
+                self.shapes.render_with_buffer(
+                    &mut render_pass,
+                    &self.uniforms_bind_group,
+                    fov_buffer,
+                    &[(0, self.fov_fill_vertex_count)],
+                );
             }
 
             // Atmosphere rendered last (transparent, alpha-blended)

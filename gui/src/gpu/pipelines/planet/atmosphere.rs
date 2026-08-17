@@ -38,6 +38,12 @@ impl AtmosphereUniforms {
     }
 }
 
+impl Default for AtmosphereUniforms {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct AtmospherePipeline {
     pipeline: RenderPipeline,
     vertex_buffer: Buffer,

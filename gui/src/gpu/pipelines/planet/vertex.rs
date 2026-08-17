@@ -280,10 +280,10 @@ mod tests {
     #[test]
     fn test_uv_triangle_span_at_most_half_round() {
         let vertices = into_textured_vertex(build_sphere(), crate::model::system::EARTH_RADIUS_KM);
-        assert!(vertices.len() > 0);
+        assert!(!vertices.is_empty());
 
         for tri_idx in 0..(vertices.len() / 3) {
-            let a = vertices[tri_idx * 3 + 0].texture_coords[0];
+            let a = vertices[tri_idx * 3].texture_coords[0];
             let b = vertices[tri_idx * 3 + 1].texture_coords[0];
             let c = vertices[tri_idx * 3 + 2].texture_coords[0];
 
@@ -312,7 +312,7 @@ mod tests {
         // speed optimization: axis-aligned bounding boxes
         let mut bboxes = Vec::with_capacity(tri_count);
         for i in 0..tri_count {
-            let p0 = in_vertices[i * 3 + 0].texture_coords;
+            let p0 = in_vertices[i * 3].texture_coords;
             let p1 = in_vertices[i * 3 + 1].texture_coords;
             let p2 = in_vertices[i * 3 + 2].texture_coords;
 
@@ -326,8 +326,8 @@ mod tests {
         for i in 0..tri_count {
             let tri_a = [
                 UvPoint {
-                    x: in_vertices[i * 3 + 0].texture_coords[0],
-                    y: in_vertices[i * 3 + 0].texture_coords[1],
+                    x: in_vertices[i * 3].texture_coords[0],
+                    y: in_vertices[i * 3].texture_coords[1],
                 },
                 UvPoint {
                     x: in_vertices[i * 3 + 1].texture_coords[0],
@@ -352,8 +352,8 @@ mod tests {
 
                 let base_tri_b = [
                     UvPoint {
-                        x: in_vertices[j * 3 + 0].texture_coords[0],
-                        y: in_vertices[j * 3 + 0].texture_coords[1],
+                        x: in_vertices[j * 3].texture_coords[0],
+                        y: in_vertices[j * 3].texture_coords[1],
                     },
                     UvPoint {
                         x: in_vertices[j * 3 + 1].texture_coords[0],

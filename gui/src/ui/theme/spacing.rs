@@ -1,7 +1,7 @@
-/// 8px-grid spacing tokens.
-///
-/// All layout spacing MUST use these constants.
-/// No arbitrary pixel values elsewhere.
+//! 8px-grid spacing tokens.
+//!
+//! All layout spacing MUST use these constants.
+//! No arbitrary pixel values elsewhere.
 
 /// Smallest spacing unit — 4px (half-grid for tight internal padding).
 pub const XXXS: f32 = 4.0;

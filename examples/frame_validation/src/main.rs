@@ -18,9 +18,9 @@ use gui::model::orbit::Orbit;
 use gui::model::satellite::Satellite;
 use gui::model::system::System;
 use gui::simulation::Simulation as ProgramSimulation;
-use iced::keyboard::{self, Key, key::Named};
+use gui::viewer::{CameraControl, subscription};
+use iced::keyboard;
 use iced::mouse;
-use iced::time;
 use iced::widget::{column, container, shader, text};
 use iced::{Element, Length};
 use nalgebra::Point3;
@@ -34,9 +34,7 @@ enum Message {
 struct FrameValidationSimulation {
     program: ProgramSimulation,
     validation_info: String,
-    cursor_position: Option<(f32, f32)>,
-    drag_start: Option<(f32, f32)>,
-    right_button_down: bool,
+    control: CameraControl,
 }
 
 impl FrameValidationSimulation {
@@ -155,9 +153,7 @@ impl FrameValidationSimulation {
         Self {
             program,
             validation_info,
-            cursor_position: None,
-            drag_start: None,
-            right_button_down: false,
+            control: CameraControl::default(),
         }
     }
 }
@@ -191,71 +187,19 @@ fn update(sim: &mut FrameValidationSimulation, message: Message) {
             }
         }
         Message::Event(event) => {
-            let rotate_angle = 5.0_f32.to_radians();
-            let zoom_amount = 500.0;
-            match event {
-                iced::event::Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => {
-                    match key {
-                        Key::Named(Named::ArrowLeft) => {
-                            sim.program.camera.rotate_around_up(-rotate_angle)
-                        }
-                        Key::Named(Named::ArrowRight) => {
-                            sim.program.camera.rotate_around_up(rotate_angle)
-                        }
-                        Key::Named(Named::ArrowUp) => {
-                            sim.program.camera.rotate_vertically(-rotate_angle)
-                        }
-                        Key::Named(Named::ArrowDown) => {
-                            sim.program.camera.rotate_vertically(rotate_angle)
-                        }
-                        Key::Character(ch) if ch == "+" || ch == "=" => {
-                            sim.program.camera.dolly(-zoom_amount)
-                        }
-                        Key::Character(ch) if ch == "-" || ch == "_" => {
-                            sim.program.camera.dolly(zoom_amount)
-                        }
-                        Key::Character(ch) if ch == "f" || ch == "F" => {
-                            sim.program.frame_mode = match sim.program.frame_mode {
-                                FrameMode::Eci => FrameMode::Ecef,
-                                FrameMode::Ecef => FrameMode::Eci,
-                            };
-                        }
-                        _ => {}
-                    }
-                }
-                iced::event::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
-                    let (x, y) = (position.x, position.y);
-                    if sim.right_button_down {
-                        if let Some((px, py)) = sim.drag_start {
-                            sim.program.camera.rotate_around_up(-(x - px) * 0.005);
-                            sim.program.camera.rotate_vertically(-(y - py) * 0.005);
-                            sim.drag_start = Some((x, y));
-                        } else {
-                            sim.drag_start = Some((x, y));
-                        }
-                    }
-                    sim.cursor_position = Some((x, y));
-                }
-                iced::event::Event::Mouse(iced::mouse::Event::ButtonPressed(
-                    iced::mouse::Button::Right,
-                )) => {
-                    sim.right_button_down = true;
-                    sim.drag_start = sim.cursor_position;
-                }
-                iced::event::Event::Mouse(iced::mouse::Event::ButtonReleased(
-                    iced::mouse::Button::Right,
-                )) => {
-                    sim.right_button_down = false;
-                    sim.drag_start = None;
-                }
-                iced::event::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
-                    let amount = match delta {
-                        iced::mouse::ScrollDelta::Lines { y, .. } => y * zoom_amount,
-                        iced::mouse::ScrollDelta::Pixels { y, .. } => y * zoom_amount / 100.0,
-                    };
-                    sim.program.camera.dolly(amount);
-                }
-                _ => {}
+            let is_frame_toggle = matches!(
+                &event,
+                iced::event::Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ch),
+                    ..
+                }) if ch == "f" || ch == "F"
+            );
+
+            if !sim.control.handle_event(&event, &mut sim.program.camera) && is_frame_toggle {
+                sim.program.frame_mode = match sim.program.frame_mode {
+                    FrameMode::Eci => FrameMode::Ecef,
+                    FrameMode::Ecef => FrameMode::Eci,
+                };
             }
         }
     }
@@ -281,10 +225,7 @@ fn main() -> iced::Result {
 
     iced::application(FrameValidationSimulation::new, update, view)
         .subscription(|_state: &FrameValidationSimulation| {
-            iced::Subscription::batch([
-                time::every(std::time::Duration::from_millis(16)).map(|_| Message::Tick),
-                iced::event::listen().map(Message::Event),
-            ])
+            subscription(|_| Message::Tick, Message::Event)
         })
         .run()
 }

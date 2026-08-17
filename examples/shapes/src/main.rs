@@ -1,78 +1,13 @@
 use gui::gpu::pipelines::planet::{camera::Camera, shapes::ShapesPipeline, uniforms::Uniforms};
 use gui::model::shapes::Shapes;
 use gui::model::text_vertices::{TextMesh, build_axis_label, build_text};
-use iced::keyboard::{self, Key, key::Named};
+use gui::viewer::{ArrowAction, CameraControl, subscription};
 use iced::mouse;
-use iced::time;
 use iced::wgpu;
 use iced::widget::{column, container, shader, text};
 use iced::{Element, Length};
 use nalgebra::{Point3, Vector3};
 use std::sync::{Arc, Mutex};
-
-#[derive(Debug, Clone)]
-struct FreeCamera {
-    camera: Camera,
-    pan_speed: f32,
-    rotate_speed: f32,
-}
-
-impl FreeCamera {
-    fn new(eye: Point3<f32>, target: Point3<f32>, width: f32, height: f32) -> Self {
-        let mut camera = Camera::new(eye, target, width, height);
-        camera.fovy = 50.0;
-
-        FreeCamera {
-            camera,
-            pan_speed: 0.75,
-            rotate_speed: 0.07,
-        }
-    }
-
-    fn as_camera(&self) -> &Camera {
-        &self.camera
-    }
-
-    fn move_left(&mut self) {
-        self.pan(-self.pan_speed, 0.0);
-    }
-
-    fn move_right(&mut self) {
-        self.pan(self.pan_speed, 0.0);
-    }
-
-    fn move_up(&mut self) {
-        self.pan(0.0, self.pan_speed);
-    }
-
-    fn move_down(&mut self) {
-        self.pan(0.0, -self.pan_speed);
-    }
-
-    fn pan(&mut self, horizontal: f32, vertical: f32) {
-        let view_dir = (self.camera.target - self.camera.eye).normalize();
-        let mut right = view_dir.cross(&self.camera.up.into_inner());
-        if right.norm_squared() < 1e-6 {
-            right = Vector3::new(1.0, 0.0, 0.0);
-        }
-        let right = right.normalize();
-        let translation = right * horizontal + self.camera.up.into_inner() * vertical;
-        self.camera.eye += translation;
-        self.camera.target += translation;
-    }
-
-    fn rotate_yaw(&mut self, delta: f32) {
-        self.camera.rotate_around_up(delta * self.rotate_speed);
-    }
-
-    fn rotate_pitch(&mut self, delta: f32) {
-        self.camera.rotate_vertically(delta * self.rotate_speed);
-    }
-
-    fn dolly(&mut self, amount: f32) {
-        self.camera.dolly(amount);
-    }
-}
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -81,13 +16,11 @@ enum Message {
 }
 
 struct ShapesSimulation {
-    camera: FreeCamera,
+    camera: Camera,
+    control: CameraControl,
     text_vertices: Vec<gui::gpu::pipelines::planet::vertex::ColoredVertex>,
     text_ranges: Vec<(u32, u32)>,
     help_text: String,
-    cursor_position: Option<(f32, f32)>,
-    drag_start: Option<(f32, f32)>,
-    right_button_down: bool,
 }
 
 impl ShapesSimulation {
@@ -107,16 +40,23 @@ impl ShapesSimulation {
 
         let camera_eye = Point3::new(-6.0, -12.0, 4.0);
         let camera_target = Point3::new(-6.0, 0.0, 0.0);
-        let camera = FreeCamera::new(camera_eye, camera_target, 1600.0, 900.0);
+        let mut camera = Camera::new(camera_eye, camera_target, 1600.0, 900.0);
+        camera.fovy = 50.0;
+
+        let mut control = CameraControl::default();
+        control.arrow_action = ArrowAction::Pan;
+        control.wheel_zoom_fraction = 0.1;
+        control.pan_amount = 0.75;
+        control.drag_sensitivity = 0.005 * 0.07;
+        control.wheel_pixel_divisor = 10.0;
+        control.wheel_sign = -1.0;
 
         ShapesSimulation {
             camera,
+            control,
             text_vertices,
             text_ranges,
             help_text: "Shapes: Pan arrows | Rotate right-drag | Zoom +/-".to_string(),
-            cursor_position: None,
-            drag_start: None,
-            right_button_down: false,
         }
     }
 }
@@ -205,7 +145,7 @@ impl shader::Program<Message> for ShapesSimulation {
         TextVerticesPrimitive {
             vertices: self.text_vertices.clone(),
             ranges: self.text_ranges.clone(),
-            camera: self.camera.as_camera().clone(),
+            camera: self.camera.clone(),
             uniforms_state: Arc::new(Mutex::new(None)),
         }
     }
@@ -215,57 +155,7 @@ fn update(sim: &mut ShapesSimulation, message: Message) {
     match message {
         Message::Tick => {}
         Message::Event(event) => {
-            let zoom_amount = 1.5;
-            match event {
-                iced::event::Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => {
-                    match key {
-                        Key::Named(Named::ArrowLeft) => sim.camera.move_left(),
-                        Key::Named(Named::ArrowRight) => sim.camera.move_right(),
-                        Key::Named(Named::ArrowUp) => sim.camera.move_up(),
-                        Key::Named(Named::ArrowDown) => sim.camera.move_down(),
-                        Key::Character(ch) if ch == "+" || ch == "=" => {
-                            sim.camera.dolly(-zoom_amount)
-                        }
-                        Key::Character(ch) if ch == "-" || ch == "_" => {
-                            sim.camera.dolly(zoom_amount)
-                        }
-                        _ => {}
-                    }
-                }
-                iced::event::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
-                    let (x, y) = (position.x, position.y);
-                    if sim.right_button_down {
-                        if let Some((px, py)) = sim.drag_start {
-                            sim.camera.rotate_yaw(-(x - px) * 0.005);
-                            sim.camera.rotate_pitch(-(y - py) * 0.005);
-                            sim.drag_start = Some((x, y));
-                        } else {
-                            sim.drag_start = Some((x, y));
-                        }
-                    }
-                    sim.cursor_position = Some((x, y));
-                }
-                iced::event::Event::Mouse(iced::mouse::Event::ButtonPressed(
-                    iced::mouse::Button::Right,
-                )) => {
-                    sim.right_button_down = true;
-                    sim.drag_start = sim.cursor_position;
-                }
-                iced::event::Event::Mouse(iced::mouse::Event::ButtonReleased(
-                    iced::mouse::Button::Right,
-                )) => {
-                    sim.right_button_down = false;
-                    sim.drag_start = None;
-                }
-                iced::event::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
-                    let amount = match delta {
-                        iced::mouse::ScrollDelta::Lines { y, .. } => y * zoom_amount,
-                        iced::mouse::ScrollDelta::Pixels { y, .. } => y * zoom_amount / 10.0,
-                    };
-                    sim.camera.dolly(-amount);
-                }
-                _ => {}
-            }
+            sim.control.handle_event(&event, &mut sim.camera);
         }
     }
 }
@@ -470,7 +360,7 @@ fn create_text_mesh() -> TextMesh {
 fn append_shapes_to_mesh(mesh: &mut TextMesh, shapes: &Shapes) {
     let (shape_vertices, shape_ranges) = shapes.get_shapes();
     let offset = mesh.vertices.len() as u32;
-    mesh.vertices.extend(shape_vertices.into_iter());
+    mesh.vertices.extend(shape_vertices);
     for (start, len) in shape_ranges {
         mesh.ranges.push((start + offset, len));
     }
@@ -481,10 +371,7 @@ fn main() -> iced::Result {
 
     iced::application(ShapesSimulation::new, update, view)
         .subscription(|_state: &ShapesSimulation| {
-            iced::Subscription::batch([
-                time::every(std::time::Duration::from_millis(16)).map(|_| Message::Tick),
-                iced::event::listen().map(Message::Event),
-            ])
+            subscription(|_| Message::Tick, Message::Event)
         })
         .run()
 }

@@ -400,6 +400,39 @@ impl System {
     }
 }
 
+pub struct SimulationBuilder {
+    orbits: Vec<Orbit>,
+    ground_stations: Vec<GroundStation>,
+    planet_triangles: Arc<Vec<TextureVertex>>,
+}
+
+impl SimulationBuilder {
+    pub fn add_orbit(mut self, orbit: Orbit) -> Self {
+        self.orbits.push(orbit);
+        self
+    }
+
+    pub fn add_ground_station(mut self, station: GroundStation) -> Self {
+        self.ground_stations.push(station);
+        self
+    }
+
+    pub fn build(self, simulation_time: DateTime<Utc>) -> System {
+        System {
+            orbits: self.orbits,
+            ground_stations: self.ground_stations,
+            planet_triangles: self.planet_triangles,
+            simulation_time,
+            start_time: simulation_time,
+            last_tick_time: Utc::now(),
+            simulation_speed: 60,
+            precession_enabled: false,
+            rect_surfaces: Vec::new(),
+            shapes: Shapes::new(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::model::satellite::Satellite;
@@ -470,38 +503,5 @@ mod tests {
         assert_eq!(positions.len(), 2);
         assert!(approx_eq(positions[0][0], 6.0));
         assert!(approx_eq(positions[1][0], 8.0));
-    }
-}
-
-pub struct SimulationBuilder {
-    orbits: Vec<Orbit>,
-    ground_stations: Vec<GroundStation>,
-    planet_triangles: Arc<Vec<TextureVertex>>,
-}
-
-impl SimulationBuilder {
-    pub fn add_orbit(mut self, orbit: Orbit) -> Self {
-        self.orbits.push(orbit);
-        self
-    }
-
-    pub fn add_ground_station(mut self, station: GroundStation) -> Self {
-        self.ground_stations.push(station);
-        self
-    }
-
-    pub fn build(self, simulation_time: DateTime<Utc>) -> System {
-        System {
-            orbits: self.orbits,
-            ground_stations: self.ground_stations,
-            planet_triangles: self.planet_triangles,
-            simulation_time: simulation_time,
-            start_time: simulation_time,
-            last_tick_time: Utc::now(),
-            simulation_speed: 60,
-            precession_enabled: false,
-            rect_surfaces: Vec::new(),
-            shapes: Shapes::new(),
-        }
     }
 }

@@ -38,6 +38,12 @@ impl CloudUniforms {
     }
 }
 
+impl Default for CloudUniforms {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct CloudPipeline {
     pipeline: RenderPipeline,
     vertex_buffer: Buffer,

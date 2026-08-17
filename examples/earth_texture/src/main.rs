@@ -17,9 +17,8 @@ use gui::model::geo::lat_lon_to_ecef;
 use gui::model::system::System;
 use gui::model::FrameMode;
 use gui::simulation::Simulation as ProgramSimulation;
-use iced::keyboard::{self, Key, key::Named};
+use gui::viewer::{CameraControl, subscription};
 use iced::mouse;
-use iced::time;
 use iced::widget::{column, container, shader, text};
 use iced::{Element, Length};
 use nalgebra::{Point3, Vector3};
@@ -33,9 +32,7 @@ enum Message {
 struct EarthTextureSimulation {
     program: ProgramSimulation,
     validation_info: String,
-    cursor_position: Option<(f32, f32)>,
-    drag_start: Option<(f32, f32)>,
-    right_button_down: bool,
+    control: CameraControl,
 }
 
 impl EarthTextureSimulation {
@@ -106,19 +103,16 @@ impl EarthTextureSimulation {
             show_clouds: false,
         };
 
-        let validation_info = format!(
-            "EARTH TEXTURE VALIDATION — Ground stations mark known cities. \
+        let validation_info = "EARTH TEXTURE VALIDATION — Ground stations mark known cities. \
              Verify visually: markers should align with geographic features on the texture. \
              (0°,0°) = Gulf of Guinea | Paris(48.9°N,2.4°E) | NYC(40.7°N,74°W) | \
              Sydney(33.9°S,151.2°E) | Tokyo(35.7°N,139.7°E)"
-        );
+            .to_string();
 
         Self {
             program,
             validation_info,
-            cursor_position: None,
-            drag_start: None,
-            right_button_down: false,
+            control: CameraControl::default(),
         }
     }
 }
@@ -146,66 +140,7 @@ fn update(sim: &mut EarthTextureSimulation, message: Message) {
     match message {
         Message::Tick => {}
         Message::Event(event) => {
-            let rotate_angle = 5.0_f32.to_radians();
-            let zoom_amount = 500.0;
-            match event {
-                iced::event::Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => {
-                    match key {
-                        Key::Named(Named::ArrowLeft) => {
-                            sim.program.camera.rotate_around_up(-rotate_angle)
-                        }
-                        Key::Named(Named::ArrowRight) => {
-                            sim.program.camera.rotate_around_up(rotate_angle)
-                        }
-                        Key::Named(Named::ArrowUp) => {
-                            sim.program.camera.rotate_vertically(-rotate_angle)
-                        }
-                        Key::Named(Named::ArrowDown) => {
-                            sim.program.camera.rotate_vertically(rotate_angle)
-                        }
-                        Key::Character(ch) if ch == "+" || ch == "=" => {
-                            sim.program.camera.dolly(-zoom_amount)
-                        }
-                        Key::Character(ch) if ch == "-" || ch == "_" => {
-                            sim.program.camera.dolly(zoom_amount)
-                        }
-                        _ => {}
-                    }
-                }
-                iced::event::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
-                    let (x, y) = (position.x, position.y);
-                    if sim.right_button_down {
-                        if let Some((px, py)) = sim.drag_start {
-                            sim.program.camera.rotate_around_up(-(x - px) * 0.005);
-                            sim.program.camera.rotate_vertically(-(y - py) * 0.005);
-                            sim.drag_start = Some((x, y));
-                        } else {
-                            sim.drag_start = Some((x, y));
-                        }
-                    }
-                    sim.cursor_position = Some((x, y));
-                }
-                iced::event::Event::Mouse(iced::mouse::Event::ButtonPressed(
-                    iced::mouse::Button::Right,
-                )) => {
-                    sim.right_button_down = true;
-                    sim.drag_start = sim.cursor_position;
-                }
-                iced::event::Event::Mouse(iced::mouse::Event::ButtonReleased(
-                    iced::mouse::Button::Right,
-                )) => {
-                    sim.right_button_down = false;
-                    sim.drag_start = None;
-                }
-                iced::event::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
-                    let amount = match delta {
-                        iced::mouse::ScrollDelta::Lines { y, .. } => y * zoom_amount,
-                        iced::mouse::ScrollDelta::Pixels { y, .. } => y * zoom_amount / 100.0,
-                    };
-                    sim.program.camera.dolly(amount);
-                }
-                _ => {}
-            }
+            sim.control.handle_event(&event, &mut sim.program.camera);
         }
     }
 }
@@ -226,10 +161,7 @@ fn main() -> iced::Result {
 
     iced::application(EarthTextureSimulation::new, update, view)
         .subscription(|_state: &EarthTextureSimulation| {
-            iced::Subscription::batch([
-                time::every(std::time::Duration::from_millis(16)).map(|_| Message::Tick),
-                iced::event::listen().map(Message::Event),
-            ])
+            subscription(|_| Message::Tick, Message::Event)
         })
         .run()
 }

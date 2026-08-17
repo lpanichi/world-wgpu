@@ -21,6 +21,12 @@ pub struct TextMesh {
     pub ranges: Vec<(u32, u32)>,
 }
 
+impl Default for TextMesh {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TextMesh {
     pub fn new() -> Self {
         Self {

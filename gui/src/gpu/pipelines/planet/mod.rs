@@ -7,6 +7,7 @@ pub mod consts;
 pub mod instance_mesh;
 pub mod moon;
 pub mod pipelines;
+#[allow(clippy::module_inception)]
 pub mod planet;
 pub mod resolve_msaa;
 pub mod satellite;
