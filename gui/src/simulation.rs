@@ -7,7 +7,7 @@ use crate::{
         system::{EARTH_RADIUS_KM, System},
     },
 };
-use chrono::Utc;
+use chrono::{TimeDelta, Utc};
 use iced::{Rectangle, mouse, wgpu, widget::shader};
 use log::{debug, info};
 use nalgebra::{Isometry3, Point3, Point4, Rotation3, Translation3, Vector3};
@@ -46,6 +46,7 @@ impl Simulation {
     pub fn toggle_pause(&mut self) {
         if self.paused {
             self.system.last_tick_time = Utc::now();
+            self.system.accumulator = TimeDelta::zero();
             self.paused = false;
         } else {
             self.paused = true;
@@ -57,6 +58,7 @@ impl Simulation {
         self.system.simulation_time = now;
         self.system.start_time = now;
         self.system.last_tick_time = now;
+        self.system.accumulator = TimeDelta::zero();
         self.ecef_reference_earth_angle = 0.0;
         self.paused = false;
     }

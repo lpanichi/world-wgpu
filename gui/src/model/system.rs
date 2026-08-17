@@ -25,6 +25,8 @@ pub struct System {
     pub simulation_time: DateTime<Utc>,
     pub start_time: DateTime<Utc>,
     pub last_tick_time: DateTime<Utc>,
+    /// Real-time remainder yet to be consumed by fixed simulation steps.
+    pub accumulator: TimeDelta,
     pub simulation_speed: i32,
     /// Whether to apply Earth axial precession to the rotation model.
     pub precession_enabled: bool,
@@ -47,12 +49,23 @@ impl System {
     }
 
     pub fn tick(&mut self) -> TimeDelta {
-        let new_last_tick_time = Utc::now();
-        let simulation_time_progress =
-            (new_last_tick_time - self.last_tick_time) * self.simulation_speed;
-        self.simulation_time += simulation_time_progress;
-        self.last_tick_time = new_last_tick_time;
-        simulation_time_progress
+        const FIXED_STEP: TimeDelta = TimeDelta::milliseconds(16);
+        const MAX_STEPS_PER_TICK: u32 = 8;
+
+        let now = Utc::now();
+        self.accumulator += now - self.last_tick_time;
+        self.last_tick_time = now;
+
+        let step_sim = FIXED_STEP * self.simulation_speed;
+        let mut progress = TimeDelta::zero();
+        let mut steps = 0;
+        while self.accumulator >= FIXED_STEP && steps < MAX_STEPS_PER_TICK {
+            self.simulation_time += step_sim;
+            self.accumulator -= FIXED_STEP;
+            progress += step_sim;
+            steps += 1;
+        }
+        progress
     }
 
     pub fn day_hour(&self) -> (u32, f64) {
@@ -425,6 +438,7 @@ impl SimulationBuilder {
             simulation_time,
             start_time: simulation_time,
             last_tick_time: Utc::now(),
+            accumulator: TimeDelta::zero(),
             simulation_speed: 60,
             precession_enabled: false,
             rect_surfaces: Vec::new(),
