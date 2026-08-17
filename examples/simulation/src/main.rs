@@ -334,18 +334,16 @@ impl Textured {
                     self.orbit_name_input.trim().to_string()
                 };
 
-                self.modify_model(|model| {
-                    model.orbits.push(
-                        Orbit::builder(semi_major_axis, period_seconds)
-                            .name(orbit_name.clone())
-                            .inclination(inclination)
-                            .raan(raan)
-                            .arg_perigee(arg_perigee)
-                            .show_orbit(true)
-                            .add_satellite(Satellite::builder("Sat-1").phase_offset(0.0).build())
-                            .build(),
-                    );
-                });
+                self.program.system.orbits.push(
+                    Orbit::builder(semi_major_axis, period_seconds)
+                        .name(orbit_name.clone())
+                        .inclination(inclination)
+                        .raan(raan)
+                        .arg_perigee(arg_perigee)
+                        .show_orbit(true)
+                        .add_satellite(Satellite::builder("Sat-1").phase_offset(0.0).build())
+                        .build(),
+                );
                 self.satellite_orbit_selection = Some(self.program.system.orbits.len() - 1);
                 self.error_message.clear();
                 self.status_message = format!(
@@ -376,11 +374,10 @@ impl Textured {
                     }
                 };
 
-                self.modify_model(|model| {
-                    model
-                        .ground_stations
-                        .push(GroundStation::new(name.clone(), lat, lon));
-                });
+                self.program
+                    .system
+                    .ground_stations
+                    .push(GroundStation::new(name.clone(), lat, lon));
                 self.error_message.clear();
                 self.status_message = format!("Created station '{}'", name);
             }
@@ -403,15 +400,13 @@ impl Textured {
                     } else {
                         self.satellite_name_input.clone()
                     };
-                    self.modify_model(|model| {
-                        if let Some(orbit) = model.orbits.get_mut(idx) {
-                            orbit.satellites.push(
-                                Satellite::builder(sat_name.clone())
-                                    .phase_offset(0.0)
-                                    .build(),
-                            );
-                        }
-                    });
+                    if let Some(orbit) = self.program.system.orbits.get_mut(idx) {
+                        orbit.satellites.push(
+                            Satellite::builder(sat_name.clone())
+                                .phase_offset(0.0)
+                                .build(),
+                        );
+                    }
                     self.error_message.clear();
                     self.status_message =
                         format!("Created satellite '{}' in orbit {}", sat_name, idx);
@@ -474,11 +469,9 @@ impl Textured {
             }
             // Manager: delete
             Message::DeleteOrbit(index) => {
-                self.modify_model(|model| {
-                    if index < model.orbits.len() {
-                        model.orbits.remove(index);
-                    }
-                });
+                if index < self.program.system.orbits.len() {
+                    self.program.system.orbits.remove(index);
+                }
 
                 let orbit_count = self.program.system.orbits.len();
                 self.satellite_orbit_selection = match self.satellite_orbit_selection {
@@ -496,20 +489,16 @@ impl Textured {
                 };
             }
             Message::DeleteStation(index) => {
-                self.modify_model(|model| {
-                    if index < model.ground_stations.len() {
-                        model.ground_stations.remove(index);
-                    }
-                });
+                if index < self.program.system.ground_stations.len() {
+                    self.program.system.ground_stations.remove(index);
+                }
             }
             Message::DeleteSatellite(orbit_index, sat_index) => {
-                self.modify_model(|model| {
-                    if let Some(orbit) = model.orbits.get_mut(orbit_index)
-                        && sat_index < orbit.satellites.len()
-                    {
-                        orbit.satellites.remove(sat_index);
-                    }
-                });
+                if let Some(orbit) = self.program.system.orbits.get_mut(orbit_index)
+                    && sat_index < orbit.satellites.len()
+                {
+                    orbit.satellites.remove(sat_index);
+                }
             }
             // Manager: tune orbit
             Message::ToggleOrbitVisible(idx) => {
@@ -600,12 +589,6 @@ impl Textured {
                 self.kpi_distance_history.clear();
             }
         }
-    }
-
-    fn modify_model(&mut self, mut f: impl FnMut(&mut System)) {
-        let mut system = self.program.system.clone();
-        f(&mut system);
-        self.program.system = system;
     }
 
     fn handle_object_selected(&mut self, object: SelectedObject, hit_distance: Option<f32>) {
