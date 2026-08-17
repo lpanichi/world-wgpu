@@ -48,9 +48,9 @@ impl PlanetPipeline {
                 label: Some("texture_bind_group_layout"),
             });
 
-        let texture_bytes = include_bytes!("../../textures/earthmap1k.jpg");
+        let texture_bytes = include_bytes!("../../textures/earthmap4k.jpg");
         let texture =
-            texture::Texture::from_bytes(device, queue, texture_bytes, "Earth 1K texture").unwrap();
+            texture::Texture::from_bytes(device, queue, texture_bytes, "Earth 4K texture").unwrap();
         let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &texture_bind_group_layout,
             entries: &[
