@@ -1,5 +1,6 @@
 use chrono::Utc;
 use env_logger::Env;
+use std::collections::VecDeque;
 
 use gui::{
     gpu::pipelines::planet::{camera::Camera, satellite::SatelliteRenderMode},
@@ -153,7 +154,7 @@ struct Textured {
     kpi_orbit_index: String,
     kpi_sat_index: String,
     /// Ring buffer of recent distance samples for the KPI plot.
-    kpi_distance_history: Vec<(f32, f32)>,
+    kpi_distance_history: VecDeque<(f32, f32)>,
 
     // Manager: focused resource after click
     manager_focus: Option<SelectedObject>,
@@ -191,10 +192,10 @@ impl Textured {
                         .system
                         .station_satellite_distance(si, oi, sati, elapsed)
                     {
-                        self.kpi_distance_history.push((elapsed, dist));
+                        self.kpi_distance_history.push_back((elapsed, dist));
                         // Keep last 500 samples
                         if self.kpi_distance_history.len() > 500 {
-                            self.kpi_distance_history.remove(0);
+                            self.kpi_distance_history.pop_front();
                         }
                     }
                 }
@@ -1219,7 +1220,7 @@ impl Default for Textured {
             kpi_station_index: "0".to_string(),
             kpi_orbit_index: "0".to_string(),
             kpi_sat_index: "0".to_string(),
-            kpi_distance_history: Vec::new(),
+            kpi_distance_history: VecDeque::new(),
             manager_focus: None,
         }
     }
