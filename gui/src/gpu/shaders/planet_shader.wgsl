@@ -2,7 +2,7 @@ struct Uniforms {
     view_proj: mat4x4<f32>,
     sun_direction: vec4<f32>,
     earth_rotation_angle: f32,
-    _padding: vec2<u32>,
+    camera_position: vec4<f32>,
 }
 @group(1) @binding(0) var<uniform> uniforms: Uniforms;
 
@@ -55,7 +55,34 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let base_color = textureSample(t_diffuse, s_diffuse, in.texture_coords).rgb;
     let normal = normalize(in.world_position);
     let light = normalize(uniforms.sun_direction.xyz);
-    let lit_strength = max(dot(normal, light), 0.0);
+
+    // Soft terminator: smoothstep across a small angular band instead of a hard
+    // max(dot(n, l), 0) cliff, so the day/night boundary fades gradually.
+    let lit_strength = smoothstep(-0.1, 0.1, dot(normal, light));
+
+    // Diffuse lighting.
     let lit = base_color * lit_strength;
-    return vec4<f32>(lit, 1.0);
+
+    // Ocean specular: Blinn-Phong glint with a Schlick fresnel factor. Water has
+    // a low normal-incidence reflectance (F0 ~ 0.02) that brightens toward 1 at
+    // grazing angles. Ocean is detected from the texture (blue channel dominant).
+    let view_dir = normalize(uniforms.camera_position.xyz - in.world_position);
+    let is_ocean = base_color.b > base_color.r
+        && base_color.b > base_color.g
+        && max(base_color.r, max(base_color.g, base_color.b)) < 0.8;
+    let half_vec = normalize(light + view_dir);
+    let spec_power = pow(max(dot(normal, half_vec), 0.0), 240.0);
+    let fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(normal, view_dir), 0.0), 5.0);
+    let ocean_spec = select(
+        vec3<f32>(0.0),
+        vec3<f32>(spec_power * fresnel * lit_strength),
+        is_ocean,
+    );
+
+    // Ambient floor so the night side never goes flat black (city lights build
+    // on top of this later).
+    let ambient = base_color * 0.02;
+
+    let color = lit + ocean_spec + ambient;
+    return vec4<f32>(color, 1.0);
 }

@@ -7,15 +7,21 @@ pub struct Uniforms {
     sun_direction: [f32; 4],
     earth_rotation_angle: f32,
     _padding: [u32; 3],
+    camera_position: [f32; 4],
 }
 
 impl Uniforms {
-    pub fn new(camera: &Camera, sun_direction: [f32; 3], earth_rotation_angle: f32) -> Self {
+    pub fn new(
+        camera: &Camera,
+        sun_direction: [f32; 3],
+        earth_rotation_angle: f32,
+    ) -> Self {
         Self {
             view_proj: camera.build_view_projection_matrix().into(),
             sun_direction: [sun_direction[0], sun_direction[1], sun_direction[2], 0.0],
             earth_rotation_angle,
             _padding: [0, 0, 0],
+            camera_position: [camera.eye.x, camera.eye.y, camera.eye.z, 1.0],
         }
     }
 
