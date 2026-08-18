@@ -121,9 +121,11 @@ impl AtmospherePipeline {
             ..Default::default()
         });
 
-        // Atmosphere is rendered with alpha blending, back-face culled (we see the inside when inside,
-        // but for an observer outside the atmosphere, we render the front-facing part).
-        // Actually, we render front faces with alpha blending so it overlays on the planet.
+        // The atmosphere is a transparent shell rendered additively (single
+        // scattering adds light in front of whatever is behind it). Both faces
+        // are drawn so an inside-of-atmosphere camera still sees the sky; the
+        // near shell writes depth so the coincident far shell fragment at the
+        // same pixel fails the depth test and the scattering isn't doubled.
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("Atmosphere Pipeline"),
             layout: Some(&pipeline_layout),
@@ -137,14 +139,14 @@ impl AtmospherePipeline {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 unclipped_depth: false,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
-                depth_write_enabled: false, // Don't write depth — atmosphere is transparent
+                depth_write_enabled: true, // Near shell occludes the far shell
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
@@ -160,7 +162,18 @@ impl AtmospherePipeline {
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
