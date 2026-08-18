@@ -65,11 +65,11 @@ impl QuadVertex {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
-struct StarInstance {
-    direction: [f32; 3],
-    size_px: f32,
-    color: [f32; 3],
-    intensity: f32,
+pub struct StarInstance {
+    pub direction: [f32; 3],
+    pub size_px: f32,
+    pub color: [f32; 3],
+    pub intensity: f32,
 }
 
 impl StarInstance {
@@ -143,7 +143,9 @@ impl StarCatalogPipeline {
         });
         queue.write_buffer(&quad_buffer, 0, bytemuck::cast_slice(&quad_vertices));
 
-        let stars = load_star_catalog();
+        let stars = crate::gpu::assets::get()
+            .map(|a| a.star_instances.clone())
+            .unwrap_or_else(load_star_catalog);
         let instance_count = stars.len() as u32;
         let instance_buffer_size = (std::mem::size_of::<StarInstance>() * stars.len()) as u64;
         let instance_buffer = device.create_buffer(&BufferDescriptor {
@@ -368,6 +370,11 @@ fn parse_catalog() -> Catalog {
 fn star_catalog() -> &'static Catalog {
     static CATALOG: std::sync::OnceLock<Catalog> = std::sync::OnceLock::new();
     CATALOG.get_or_init(parse_catalog)
+}
+
+/// Parse the embedded star catalog into GPU instances. Pure CPU.
+pub fn load_star_instances() -> Vec<StarInstance> {
+    load_star_catalog()
 }
 
 fn load_star_catalog() -> Vec<StarInstance> {

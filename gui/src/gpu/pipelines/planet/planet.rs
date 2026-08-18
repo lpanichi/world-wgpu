@@ -48,9 +48,13 @@ impl PlanetPipeline {
                 label: Some("texture_bind_group_layout"),
             });
 
-        let texture_bytes = include_bytes!("../../textures/earthmap4k.jpg");
-        let texture =
-            texture::Texture::from_bytes(device, queue, texture_bytes, "Earth 4K texture").unwrap();
+        let texture = if let Some(assets) = crate::gpu::assets::get() {
+            texture::Texture::from_preloaded(device, queue, &assets.earth_mips, "Earth texture")
+                .unwrap()
+        } else {
+            let texture_bytes = include_bytes!("../../textures/earthmap4k.jpg");
+            texture::Texture::from_bytes(device, queue, texture_bytes, "Earth 4K texture").unwrap()
+        };
         let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &texture_bind_group_layout,
             entries: &[

@@ -30,6 +30,9 @@ use iced::{
 };
 use log::{debug, info};
 
+use std::sync::Arc;
+
+use gui::gpu::assets::{self, PreloadedAssets, TextureQuality};
 use gui::model::FrameMode;
 use gui::simulation::{SelectedObject, Simulation};
 
@@ -95,6 +98,8 @@ enum Message {
     KpiStationIndexInput(String),
     KpiOrbitIndexInput(String),
     KpiSatIndexInput(String),
+    // Boot
+    AssetsLoaded(Result<Arc<PreloadedAssets>, String>),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -120,6 +125,7 @@ struct Textured {
     selected_object: SelectedObject,
     selected_hit_distance: Option<f32>,
     viewport_size: (f32, f32),
+    loading: bool,
 
     panel_mode: SidebarTab,
     builder_pane: BuilderForm,
@@ -587,6 +593,26 @@ impl Textured {
             Message::KpiSatIndexInput(v) => {
                 self.kpi_sat_index = v;
                 self.kpi_distance_history.clear();
+            }
+            // Boot
+            Message::AssetsLoaded(result) => {
+                self.loading = false;
+                match result {
+                    Ok(assets) => {
+                        let mip_levels = assets.earth_mips.len();
+                        let star_count = assets.star_instances.len();
+                        assets::install(assets);
+                        self.status_message = "Assets loaded".to_string();
+                        info!(
+                            "preloaded assets installed: {} mip levels, {} star instances",
+                            mip_levels, star_count
+                        );
+                    }
+                    Err(error) => {
+                        self.error_message = format!("Failed to preload assets: {error}");
+                        debug!("asset preload failed: {}", error);
+                    }
+                }
             }
         }
     }
@@ -1088,6 +1114,13 @@ impl Textured {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        if self.loading {
+            return gui::ui::components::loading::loading_screen(
+                "Loading assets...",
+                None,
+            );
+        }
+
         let pane_grid = pane_grid::PaneGrid::new(&self.panes, |_, pane_state, _| {
             let content: Element<'_, Message> = match pane_state.id {
                 0 => shader(&self.program).width(Fill).height(Fill).into(),
@@ -1198,6 +1231,7 @@ impl Default for Textured {
             selected_object: SelectedObject::None,
             selected_hit_distance: None,
             viewport_size: (200.0, 200.0),
+            loading: true,
             follow_satellite: None,
             follow_offset: nalgebra::Vector3::new(0.0, 0.0, 200.0),
             kpi_station_index: "0".to_string(),
@@ -1216,7 +1250,11 @@ fn main() -> iced::Result {
 
     debug!("logging initialized for module: {}", module_path!());
 
-    iced::application(Textured::default, Textured::update, Textured::view)
+    iced::application(
+        Textured::boot,
+        Textured::update,
+        Textured::view,
+    )
         .subscription(|_state: &Textured| {
             iced::Subscription::batch([
                 iced::keyboard::listen().map(Message::KeyboardEvent),
@@ -1226,4 +1264,38 @@ fn main() -> iced::Result {
         })
         .theme(Theme::KanagawaDragon)
         .run()
+}
+
+impl Textured {
+    fn boot() -> (Self, iced::Task<Message>) {
+        let quality = parse_texture_quality();
+        debug!("texture quality: {:?}", quality);
+        (
+            Self::default(),
+            iced::Task::perform(
+                assets::load_async(quality),
+                |result| Message::AssetsLoaded(result.map_err(|error| error.to_string())),
+            ),
+        )
+    }
+}
+
+/// Pick the earth texture resolution from CLI args.
+///
+/// Usage: `cargo run -p simulation [--low-res | --high-res]`
+///
+/// Defaults to `LowRes` when no flag is given.
+fn parse_texture_quality() -> TextureQuality {
+    match std::env::args().nth(1).as_deref() {
+        Some("--low-res" | "--lowres") => TextureQuality::LowRes,
+        Some("--high-res" | "--highres") => TextureQuality::HighRes,
+        Some(other) => {
+            eprintln!(
+                "warning: unknown argument `{other}`, expected `--low-res` or `--high-res`; \
+                 defaulting to low res"
+            );
+            TextureQuality::LowRes
+        }
+        None => TextureQuality::LowRes,
+    }
 }

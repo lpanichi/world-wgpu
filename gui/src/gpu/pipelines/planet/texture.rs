@@ -1,6 +1,6 @@
 use anyhow::*;
 use iced::wgpu;
-use image::{GenericImageView, RgbaImage};
+use image::RgbaImage;
 
 #[derive(Debug)]
 pub struct Texture {
@@ -17,8 +17,8 @@ impl Texture {
         bytes: &[u8],
         label: &str,
     ) -> Result<Self> {
-        let img = image::load_from_memory(bytes)?;
-        Self::from_image(device, queue, &img, Some(label))
+        let mips = decode(bytes)?;
+        Self::from_preloaded(device, queue, &mips, label)
     }
 
     pub fn from_image(
@@ -27,18 +27,27 @@ impl Texture {
         img: &image::DynamicImage,
         label: Option<&str>,
     ) -> Result<Self> {
-        let rgba = img.to_rgba8();
-        let dimensions = img.dimensions();
-        let mip_count = dimensions.0.max(dimensions.1).ilog2() + 1;
+        let mips = mip_chain(&img.to_rgba8());
+        Self::from_preloaded(device, queue, &mips, label.unwrap_or("Texture"))
+    }
+
+    /// Upload a pre-decoded mip chain (level 0 is the full-res image).
+    pub fn from_preloaded(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        mips: &[RgbaImage],
+        label: &str,
+    ) -> Result<Self> {
+        let (width, height) = mips[0].dimensions();
         let size = wgpu::Extent3d {
-            width: dimensions.0,
-            height: dimensions.1,
+            width,
+            height,
             depth_or_array_layers: 1,
         };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label,
+            label: Some(label),
             size,
-            mip_level_count: mip_count,
+            mip_level_count: mips.len() as u32,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
@@ -46,19 +55,8 @@ impl Texture {
             view_formats: &[],
         });
 
-        write_image_level(queue, &texture, 0, &rgba);
-
-        let mut level = 0;
-        let mut mip = rgba;
-        while mip.width() > 1 || mip.height() > 1 {
-            level += 1;
-            mip = image::imageops::resize(
-                &mip,
-                (mip.width() / 2).max(1),
-                (mip.height() / 2).max(1),
-                image::imageops::FilterType::Triangle,
-            );
-            write_image_level(queue, &texture, level, &mip);
+        for (level, mip) in mips.iter().enumerate() {
+            write_image_level(queue, &texture, level as u32, mip);
         }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -78,6 +76,24 @@ impl Texture {
             sampler,
         })
     }
+}
+
+/// Decode an encoded image (JPEG/PNG/…) into a full RGBA mip chain. Pure CPU.
+pub fn decode(bytes: &[u8]) -> Result<Vec<RgbaImage>> {
+    let img = image::load_from_memory(bytes)?;
+    Ok(mip_chain(&img.to_rgba8()))
+}
+
+/// Build a successive-halving mip chain down to 1x1 from a full-res RGBA image. Pure CPU.
+pub fn mip_chain(rgba: &RgbaImage) -> Vec<RgbaImage> {
+    let mut levels = vec![rgba.clone()];
+    let mut mip = rgba.clone();
+    while mip.width() > 1 || mip.height() > 1 {
+        let (w, h) = ((mip.width() / 2).max(1), (mip.height() / 2).max(1));
+        mip = image::imageops::resize(&mip, w, h, image::imageops::FilterType::Triangle);
+        levels.push(mip.clone());
+    }
+    levels
 }
 
 /// Write an RGBA image to a mip level, padding each row to wgpu's alignment

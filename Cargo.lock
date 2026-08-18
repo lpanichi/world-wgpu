@@ -1581,6 +1581,7 @@ dependencies = [
  "image",
  "log",
  "nalgebra",
+ "smol",
 ]
 
 [[package]]

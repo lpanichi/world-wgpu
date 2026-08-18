@@ -14,6 +14,6 @@ pub mod satellite;
 pub mod shapes;
 pub mod star_catalog;
 pub mod station;
-mod texture;
+pub mod texture;
 pub mod uniforms;
 pub mod vertex;
