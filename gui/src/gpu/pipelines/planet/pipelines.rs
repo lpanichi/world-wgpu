@@ -17,12 +17,13 @@ use crate::gpu::pipelines::planet::{
     resolve_msaa::ResolveMsaaPipeline,
     shapes::{FEATURE_COLOR, ShapesPipeline},
     star_catalog::StarCatalogPipeline,
+    station::StationPipeline,
+    sun::SunPipeline,
     uniforms::Uniforms,
     vertex::ColoredVertex,
 };
 use crate::{
     gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode},
-    gpu::pipelines::planet::station::StationPipeline,
     model::system::System,
 };
 
@@ -38,6 +39,7 @@ pub struct Pipelines {
     fov_fill_vertex_count: u32,
     satellite: SatellitePipeline,
     station: StationPipeline,
+    sun: SunPipeline,
     moon: MoonPipeline,
     cloud: CloudPipeline,
     atmosphere: AtmospherePipeline,
@@ -98,6 +100,7 @@ impl Pipelines {
         let satellite = SatellitePipeline::new(device, queue, HDR_FORMAT);
         let station = StationPipeline::new(device, queue, HDR_FORMAT);
         let moon = MoonPipeline::new(device, queue, HDR_FORMAT);
+        let sun = SunPipeline::new(device, queue, HDR_FORMAT);
         let cloud = CloudPipeline::new(device, queue, HDR_FORMAT);
         let atmosphere = AtmospherePipeline::new(device, queue, HDR_FORMAT);
         let clear_quad = ClearQuadPipeline::new(device, HDR_FORMAT);
@@ -113,6 +116,7 @@ impl Pipelines {
             fov_fill_vertex_count: 0,
             satellite,
             station,
+            sun,
             moon,
             cloud,
             atmosphere,
@@ -240,6 +244,9 @@ impl Pipelines {
         // Moon
         let moon_pos = Astral::moon_inertial_position(day_of_year, hour);
         self.moon.prepare(queue, camera, moon_pos, sun_dir);
+
+        // Sun (billboard along the sun direction)
+        self.sun.prepare(queue, camera, sun_dir);
 
         // Clouds
         if self.show_clouds {
@@ -374,6 +381,10 @@ impl Pipelines {
                     &[(0, self.fov_fill_vertex_count)],
                 );
             }
+
+            // Sun rendered after opaque scene (occluded by nearer depth),
+            // before the transparent atmosphere so scattering overlays it.
+            self.sun.render(&mut render_pass);
 
             // Atmosphere rendered last (transparent, alpha-blended)
             self.atmosphere.render(&mut render_pass);
