@@ -11,7 +11,7 @@ use crate::gpu::pipelines::planet::{
     camera::Camera,
     clear_quad::ClearQuadPipeline,
     cloud::CloudPipeline,
-    consts::{DEPTH_FORMAT, MSAA_SAMPLE_COUNT},
+    consts::{DEPTH_FORMAT, HDR_FORMAT, MSAA_SAMPLE_COUNT},
     moon::MoonPipeline,
     planet::PlanetPipeline,
     resolve_msaa::ResolveMsaaPipeline,
@@ -43,7 +43,6 @@ pub struct Pipelines {
     atmosphere: AtmospherePipeline,
     clear_quad: ClearQuadPipeline,
     resolve_msaa: ResolveMsaaPipeline,
-    format: wgpu::TextureFormat,
     msaa_color_texture: Option<wgpu::Texture>,
     depth_texture: Option<wgpu::Texture>,
     depth_size: (u32, u32),
@@ -88,18 +87,21 @@ impl Pipelines {
             }],
         });
 
-        let planet = PlanetPipeline::new(device, queue, format, &uniform_bind_group_layout);
+        // Scene pipelines write linear HDR values into the floating-point MSAA
+        // target; the resolve pass (created with the surface `format`) tone maps
+        // and gamma-encodes the result for the final display.
+        let planet = PlanetPipeline::new(device, queue, HDR_FORMAT, &uniform_bind_group_layout);
 
-        let shapes = ShapesPipeline::new(device, format, &uniform_bind_group_layout, MSAA_SAMPLE_COUNT);
-        let star_catalog = StarCatalogPipeline::new(device, queue, format);
+        let shapes = ShapesPipeline::new(device, HDR_FORMAT, &uniform_bind_group_layout, MSAA_SAMPLE_COUNT);
+        let star_catalog = StarCatalogPipeline::new(device, queue, HDR_FORMAT);
 
-        let satellite = SatellitePipeline::new(device, queue, format);
-        let station = StationPipeline::new(device, queue, format);
-        let moon = MoonPipeline::new(device, queue, format);
-        let cloud = CloudPipeline::new(device, queue, format);
-        let atmosphere = AtmospherePipeline::new(device, queue, format);
-        let clear_quad = ClearQuadPipeline::new(device, format);
-        let resolve_msaa = ResolveMsaaPipeline::new(device, format);
+        let satellite = SatellitePipeline::new(device, queue, HDR_FORMAT);
+        let station = StationPipeline::new(device, queue, HDR_FORMAT);
+        let moon = MoonPipeline::new(device, queue, HDR_FORMAT);
+        let cloud = CloudPipeline::new(device, queue, HDR_FORMAT);
+        let atmosphere = AtmospherePipeline::new(device, queue, HDR_FORMAT);
+        let clear_quad = ClearQuadPipeline::new(device, HDR_FORMAT);
+        let resolve_msaa = ResolveMsaaPipeline::new(device, queue, format);
 
         Pipelines {
             uniforms,
@@ -116,7 +118,6 @@ impl Pipelines {
             atmosphere,
             clear_quad,
             resolve_msaa,
-            format,
             msaa_color_texture: None,
             depth_texture: None,
             depth_size: (0, 0),
@@ -173,7 +174,7 @@ impl Pipelines {
                 mip_level_count: 1,
                 sample_count: MSAA_SAMPLE_COUNT,
                 dimension: wgpu::TextureDimension::D2,
-                format: self.format,
+                format: HDR_FORMAT,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
