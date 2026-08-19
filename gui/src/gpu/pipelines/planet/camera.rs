@@ -44,7 +44,10 @@ impl Camera {
             aspect: width / height,
             fovy: 70.0,
             znear: 1.0,
-            zfar: 100_000.0,
+            // Far plane must reach the Moon (~385,000 km) so it is not clipped;
+            // the near scene (planet, clouds, atmosphere) is unaffected because
+            // perspective depth for near objects barely depends on zfar.
+            zfar: 600_000.0,
         };
 
         camera.refresh_up();

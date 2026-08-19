@@ -58,5 +58,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let warm = vec3<f32>(1.0, 0.95, 0.82);
     let color = warm * (disc * 60.0 + glow * 14.0);
+
+    // The quad is square but the glow is circular, and the glow's faint tail is
+    // darker than the navy sky behind it. Discard both: the discarded fragments
+    // reveal the background instead of painting a dark halo/rectangle.
+    if max(max(color.r, color.g), color.b) < 0.004 {
+        discard;
+    }
     return vec4<f32>(color, 1.0);
 }

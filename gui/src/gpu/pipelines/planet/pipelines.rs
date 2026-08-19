@@ -353,6 +353,12 @@ impl Pipelines {
             self.planet
                 .render(&mut render_pass, &self.uniforms_bind_group);
 
+            // Sun drawn right after the opaque planet (so the earth occludes it
+            // by depth) but BEFORE the wireframe/cone overlays: those passes use
+            // depth_write=false, so drawing the sun later would let its REPLACE
+            // billboard overwrite them wherever they extend over the background.
+            self.sun.render(&mut render_pass);
+
             // Orbits + features (colored)
             self.shapes
                 .render(&mut render_pass, &self.uniforms_bind_group);
@@ -382,11 +388,8 @@ impl Pipelines {
                 );
             }
 
-            // Sun rendered after opaque scene (occluded by nearer depth),
-            // before the transparent atmosphere so scattering overlays it.
-            self.sun.render(&mut render_pass);
-
-            // Atmosphere rendered last (transparent, alpha-blended)
+            // Atmosphere rendered last (transparent, alpha-blended) so the
+            // additive scattering overlays the sun near the limb.
             self.atmosphere.render(&mut render_pass);
         }
 
