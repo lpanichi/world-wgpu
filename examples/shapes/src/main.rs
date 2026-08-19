@@ -182,7 +182,7 @@ impl shader::Primitive for TextVerticesPrimitive {
         _bounds: &iced::Rectangle,
         viewport: &shader::Viewport,
     ) {
-        let uniforms = Uniforms::new(&self.camera, [0.0, 0.0, 0.0], 0.0, 0.0, 0.0, 0.0);
+        let uniforms = Uniforms::new(&self.camera, [0.0, 0.0, 0.0], 0.0, 0.0, 0.0, 0.0, 1.0);
         let mut state = self.uniforms_state.lock().unwrap();
 
         if let Some(state) = state.as_mut() {

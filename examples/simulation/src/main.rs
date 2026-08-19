@@ -14,7 +14,7 @@ use gui::{
         screens::main_screen::{
             self, BuilderForm, SidebarTab, error_banner, kpi_panel, orbit_builder_panel,
             orbit_manager_item, rect_surface_builder_panel, satellite_builder_panel,
-            satellite_manager_item, sim_controls_panel, station_builder_panel,
+            satellite_manager_item, settings_panel, sim_controls_panel, station_builder_panel,
             station_manager_item, status_bar, tab_bar,
         },
         theme::{colors, spacing, typography},
@@ -94,6 +94,11 @@ enum Message {
     TogglePrecession,
     // Camera
     FollowSatellite(Option<(usize, usize)>),
+    // Quality toggles
+    ToggleClouds,
+    ToggleAtmosphere,
+    ToggleNightLights,
+    ToggleBloom,
     // KPI
     KpiStationIndexInput(String),
     KpiOrbitIndexInput(String),
@@ -272,6 +277,14 @@ impl Textured {
                     }
                 );
             }
+            Message::ToggleClouds => self.program.show_clouds = !self.program.show_clouds,
+            Message::ToggleAtmosphere => {
+                self.program.show_atmosphere = !self.program.show_atmosphere
+            }
+            Message::ToggleNightLights => {
+                self.program.show_night_lights = !self.program.show_night_lights
+            }
+            Message::ToggleBloom => self.program.show_bloom = !self.program.show_bloom,
             Message::SwitchMode(mode) => {
                 self.panel_mode = mode;
                 self.manager_focus = None;
@@ -885,6 +898,16 @@ impl Textured {
             SidebarTab::Builder => self.builder_panel(),
             SidebarTab::Manager => self.manager_panel(),
             SidebarTab::Kpi => self.kpi_view(),
+            SidebarTab::Settings => settings_panel(
+                self.program.show_clouds,
+                self.program.show_atmosphere,
+                self.program.show_night_lights,
+                self.program.show_bloom,
+                Message::ToggleClouds,
+                Message::ToggleAtmosphere,
+                Message::ToggleNightLights,
+                Message::ToggleBloom,
+            ),
         };
 
         // --- Compose sidebar ---
@@ -1203,6 +1226,9 @@ impl Default for Textured {
                 time_scale: 120.0,
                 pick_radius_scale: 2.0,
                 show_clouds: true,
+                show_atmosphere: true,
+                show_night_lights: true,
+                show_bloom: true,
             },
             panes,
             focus: Some(root_pane),

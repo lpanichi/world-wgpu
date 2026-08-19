@@ -34,6 +34,9 @@ pub struct Simulation {
     pub time_scale: f32,
     pub pick_radius_scale: f32,
     pub show_clouds: bool,
+    pub show_atmosphere: bool,
+    pub show_night_lights: bool,
+    pub show_bloom: bool,
 }
 
 impl Simulation {
@@ -288,6 +291,9 @@ impl<Message> shader::Program<Message> for Simulation {
             camera,
             satellite_mode: self.satellite_mode,
             show_clouds: self.show_clouds,
+            show_atmosphere: self.show_atmosphere,
+            show_night_lights: self.show_night_lights,
+            show_bloom: self.show_bloom,
         }
     }
 }
@@ -298,6 +304,9 @@ pub struct Primitive {
     camera: Camera,
     satellite_mode: SatelliteRenderMode,
     show_clouds: bool,
+    show_atmosphere: bool,
+    show_night_lights: bool,
+    show_bloom: bool,
 }
 
 impl shader::Primitive for Primitive {
@@ -320,6 +329,9 @@ impl shader::Primitive for Primitive {
             &self.camera,
             self.satellite_mode,
             self.show_clouds,
+            self.show_atmosphere,
+            self.show_night_lights,
+            self.show_bloom,
         );
     }
 

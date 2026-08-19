@@ -11,7 +11,7 @@ pub struct Uniforms {
     cloud_radius: f32,
     cloud_time: f32,
     cloud_shadow_strength: f32,
-    _padding2: f32,
+    city_lights_enabled: f32,
 }
 
 impl Uniforms {
@@ -22,6 +22,7 @@ impl Uniforms {
         cloud_radius: f32,
         cloud_time: f32,
         cloud_shadow_strength: f32,
+        city_lights_enabled: f32,
     ) -> Self {
         Self {
             view_proj: camera.build_view_projection_matrix().into(),
@@ -32,7 +33,7 @@ impl Uniforms {
             cloud_radius,
             cloud_time,
             cloud_shadow_strength,
-            _padding2: 0.0,
+            city_lights_enabled,
         }
     }
 

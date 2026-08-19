@@ -5,8 +5,8 @@ struct Uniforms {
     camera_position: vec4<f32>,
     cloud_radius: f32,
     cloud_time: f32,
-    cloud_shadow_strength: f32,
-    _padding2: f32,
+cloud_shadow_strength: f32,
+   city_lights_enabled: f32,
 }
 @group(1) @binding(0) var<uniform> uniforms: Uniforms;
 
@@ -227,6 +227,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = lit
         + ocean_spec * shadow
         + ambient
-        + city_lights(in.texture_coords, base_color, ndl, ndv);
+        + city_lights(in.texture_coords, base_color, ndl, ndv) * uniforms.city_lights_enabled;
     return vec4<f32>(color, 1.0);
 }

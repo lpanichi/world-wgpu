@@ -1,4 +1,5 @@
 pub mod atmosphere;
+pub mod bloom;
 pub mod buffer;
 pub mod camera;
 pub mod clear_quad;
@@ -10,7 +11,6 @@ pub mod moon;
 pub mod pipelines;
 #[allow(clippy::module_inception)]
 pub mod planet;
-pub mod resolve_msaa;
 pub mod satellite;
 pub mod shapes;
 pub mod star_catalog;

@@ -7,6 +7,7 @@ use iced::{
 use crate::astro::Astral;
 use crate::gpu::pipelines::planet::{
     atmosphere::AtmospherePipeline,
+    bloom::BloomPipeline,
     buffer::write_or_grow,
     camera::Camera,
     clear_quad::ClearQuadPipeline,
@@ -15,7 +16,6 @@ use crate::gpu::pipelines::planet::{
     milky_way::MilkyWayPipeline,
     moon::MoonPipeline,
     planet::PlanetPipeline,
-    resolve_msaa::ResolveMsaaPipeline,
     shapes::{FEATURE_COLOR, ShapesPipeline},
     star_catalog::StarCatalogPipeline,
     station::StationPipeline,
@@ -46,11 +46,14 @@ pub struct Pipelines {
     cloud: CloudPipeline,
     atmosphere: AtmospherePipeline,
     clear_quad: ClearQuadPipeline,
-    resolve_msaa: ResolveMsaaPipeline,
+    bloom: BloomPipeline,
     msaa_color_texture: Option<wgpu::Texture>,
     depth_texture: Option<wgpu::Texture>,
     depth_size: (u32, u32),
     show_clouds: bool,
+    show_atmosphere: bool,
+    show_night_lights: bool,
+    show_bloom: bool,
     initialized: bool,
 }
 
@@ -107,7 +110,7 @@ impl Pipelines {
         let cloud = CloudPipeline::new(device, queue, HDR_FORMAT);
         let atmosphere = AtmospherePipeline::new(device, queue, HDR_FORMAT);
         let clear_quad = ClearQuadPipeline::new(device, queue, HDR_FORMAT);
-        let resolve_msaa = ResolveMsaaPipeline::new(device, queue, format);
+        let bloom = BloomPipeline::new(device, queue, format);
 
         Pipelines {
             uniforms,
@@ -125,11 +128,14 @@ impl Pipelines {
             cloud,
             atmosphere,
             clear_quad,
-            resolve_msaa,
+            bloom,
             msaa_color_texture: None,
             depth_texture: None,
             depth_size: (0, 0),
             show_clouds: true,
+            show_atmosphere: true,
+            show_night_lights: true,
+            show_bloom: true,
             initialized: false,
         }
     }
@@ -159,11 +165,17 @@ impl Pipelines {
         system: &System,
         camera: &Camera,
         satellite_mode: SatelliteRenderMode,
-        show_clouds: bool,
-    ) {
+show_clouds: bool,
+    show_atmosphere: bool,
+    show_night_lights: bool,
+    show_bloom: bool,
+) {
         let width = viewport.physical_width();
         let height = viewport.physical_height();
         self.show_clouds = show_clouds;
+        self.show_atmosphere = show_atmosphere;
+        self.show_night_lights = show_night_lights;
+        self.show_bloom = show_bloom;
 
         self.initialize_system(device, queue, system);
 
@@ -188,7 +200,7 @@ impl Pipelines {
                 view_formats: &[],
             });
             let msaa_view = msaa_texture.create_view(&wgpu::TextureViewDescriptor::default());
-            self.resolve_msaa.set_source(device, &msaa_view);
+            self.bloom.resize(device, &msaa_view, width, height);
             self.msaa_color_texture = Some(msaa_texture);
             self.depth_texture = Some(device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Depth Texture"),
@@ -224,6 +236,9 @@ impl Pipelines {
         // Space background gradient (also camera-dependent ray reconstruction).
         self.clear_quad.prepare(queue, camera);
 
+        // Bloom on/off is a cheap uniforms rewrite; skip when unchanged.
+        self.bloom.set_enabled(queue, self.show_bloom);
+
         // Sun direction as directional light. Use astronomical position relative to Earth.
         let sun_inertial = Astral::sun_inertial_position(day_of_year, hour);
         let sun_dir_eci = Vector3::new(
@@ -243,6 +258,7 @@ impl Pipelines {
             crate::model::system::EARTH_RADIUS_KM * 1.0055,
             elapsed,
             0.6,
+            if self.show_night_lights { 1.0 } else { 0.0 },
         );
 
         // Satellites
@@ -406,39 +422,15 @@ impl Pipelines {
 
             // Atmosphere rendered last (transparent, alpha-blended) so the
             // additive scattering overlays the sun near the limb.
-            self.atmosphere.render(&mut render_pass);
+            if self.show_atmosphere {
+                self.atmosphere.render(&mut render_pass);
+            }
         }
 
-        let mut resolve_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("MSAA Resolve Composite Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-        resolve_pass.set_viewport(
-            clip_bounds.x as f32,
-            clip_bounds.y as f32,
-            clip_bounds.width as f32,
-            clip_bounds.height as f32,
-            0.0,
-            1.0,
-        );
-        resolve_pass.set_scissor_rect(
-            clip_bounds.x,
-            clip_bounds.y,
-            clip_bounds.width,
-            clip_bounds.height,
-        );
-        self.resolve_msaa.render(&mut resolve_pass);
+        // Post-process: resolve MSAA -> HDR, extract+blur bright parts (bloom),
+        // then composite with ACES tone map + gamma onto the surface. Scissored
+        // to the same clip bounds so iced container backgrounds stay intact.
+        self.bloom.render(encoder, target, clip_bounds);
     }
 }
 

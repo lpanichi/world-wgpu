@@ -101,6 +101,9 @@ impl OrbitElementsSimulation {
             time_scale: 0.0,
             pick_radius_scale: 1.0,
             show_clouds: false,
+            show_atmosphere: false,
+            show_night_lights: false,
+            show_bloom: false,
         };
 
         Self {

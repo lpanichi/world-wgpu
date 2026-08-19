@@ -21,6 +21,7 @@ pub enum SidebarTab {
     Builder,
     Manager,
     Kpi,
+    Settings,
 }
 
 /// Which builder sub-form is open.
@@ -99,6 +100,11 @@ pub fn tab_bar<'a, M: Clone + 'a>(
             "KPIs",
             variant_for(SidebarTab::Kpi),
             Some(on_switch(SidebarTab::Kpi)),
+        ),
+        action_button(
+            "Settings",
+            variant_for(SidebarTab::Settings),
+            Some(on_switch(SidebarTab::Settings)),
         ),
     ]
     .spacing(spacing::TOOLBAR_GAP)
@@ -456,6 +462,43 @@ pub fn sim_controls_panel<'a, M: Clone + 'a>(
                 ),
             ]
             .spacing(spacing::TOOLBAR_GAP),
+        ]
+        .spacing(spacing::CONTROL_GAP),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Settings panel
+// ---------------------------------------------------------------------------
+
+/// Render quality toggles (clouds, atmosphere, night lights, bloom).
+#[allow(clippy::too_many_arguments)]
+pub fn settings_panel<'a, M: Clone + 'a>(
+    clouds: bool,
+    atmosphere: bool,
+    night_lights: bool,
+    bloom: bool,
+    on_toggle_clouds: M,
+    on_toggle_atmosphere: M,
+    on_toggle_night_lights: M,
+    on_toggle_bloom: M,
+) -> Element<'a, M> {
+    let state_button = |active: bool, label: &str, on_click: M| {
+        icon_text_button(
+            if active { icons::CHECK } else { icons::XMARK },
+            label,
+            ButtonVariant::Default,
+            Some(on_click),
+        )
+    };
+
+    panel(
+        Some("Settings"),
+        column![
+            state_button(clouds, "Clouds", on_toggle_clouds),
+            state_button(atmosphere, "Atmosphere", on_toggle_atmosphere),
+            state_button(night_lights, "Night Lights", on_toggle_night_lights),
+            state_button(bloom, "Bloom", on_toggle_bloom),
         ]
         .spacing(spacing::CONTROL_GAP),
     )
