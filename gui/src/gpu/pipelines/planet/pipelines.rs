@@ -106,7 +106,7 @@ impl Pipelines {
         let sun = SunPipeline::new(device, queue, HDR_FORMAT);
         let cloud = CloudPipeline::new(device, queue, HDR_FORMAT);
         let atmosphere = AtmospherePipeline::new(device, queue, HDR_FORMAT);
-        let clear_quad = ClearQuadPipeline::new(device, HDR_FORMAT);
+        let clear_quad = ClearQuadPipeline::new(device, queue, HDR_FORMAT);
         let resolve_msaa = ResolveMsaaPipeline::new(device, queue, format);
 
         Pipelines {
@@ -220,6 +220,9 @@ impl Pipelines {
 
         // Milky Way band depends only on the camera (ray reconstruction).
         self.milky_way.prepare(queue, camera);
+
+        // Space background gradient (also camera-dependent ray reconstruction).
+        self.clear_quad.prepare(queue, camera);
 
         // Sun direction as directional light. Use astronomical position relative to Earth.
         let sun_inertial = Astral::sun_inertial_position(day_of_year, hour);
