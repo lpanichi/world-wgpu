@@ -12,6 +12,7 @@ use crate::gpu::pipelines::planet::{
     clear_quad::ClearQuadPipeline,
     cloud::CloudPipeline,
     consts::{DEPTH_FORMAT, HDR_FORMAT, MSAA_SAMPLE_COUNT},
+    milky_way::MilkyWayPipeline,
     moon::MoonPipeline,
     planet::PlanetPipeline,
     resolve_msaa::ResolveMsaaPipeline,
@@ -34,6 +35,7 @@ pub struct Pipelines {
     uniforms_bind_group: BindGroup,
     planet: PlanetPipeline,
     star_catalog: StarCatalogPipeline,
+    milky_way: MilkyWayPipeline,
     shapes: ShapesPipeline,
     fov_fill_buffer: Option<Buffer>,
     fov_fill_vertex_count: u32,
@@ -96,6 +98,7 @@ impl Pipelines {
 
         let shapes = ShapesPipeline::new(device, HDR_FORMAT, &uniform_bind_group_layout, MSAA_SAMPLE_COUNT);
         let star_catalog = StarCatalogPipeline::new(device, queue, HDR_FORMAT);
+        let milky_way = MilkyWayPipeline::new(device, queue, HDR_FORMAT);
 
         let satellite = SatellitePipeline::new(device, queue, HDR_FORMAT);
         let station = StationPipeline::new(device, queue, HDR_FORMAT);
@@ -111,6 +114,7 @@ impl Pipelines {
             uniforms_bind_group,
             planet,
             star_catalog,
+            milky_way,
             shapes,
             fov_fill_buffer: None,
             fov_fill_vertex_count: 0,
@@ -213,6 +217,9 @@ impl Pipelines {
 
         self.star_catalog
             .prepare(queue, camera, width as f32, height as f32);
+
+        // Milky Way band depends only on the camera (ray reconstruction).
+        self.milky_way.prepare(queue, camera);
 
         // Sun direction as directional light. Use astronomical position relative to Earth.
         let sun_inertial = Astral::sun_inertial_position(day_of_year, hour);
@@ -347,6 +354,9 @@ impl Pipelines {
             // Manual clear within scissor — only affects the shader viewport area,
             // preserving iced container backgrounds outside it.
             self.clear_quad.render(&mut render_pass);
+
+            // Faint procedural Milky Way band behind the point stars.
+            self.milky_way.render(&mut render_pass);
 
             self.star_catalog.render(&mut render_pass);
 

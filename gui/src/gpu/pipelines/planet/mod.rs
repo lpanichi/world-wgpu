@@ -5,6 +5,7 @@ pub mod clear_quad;
 pub mod cloud;
 pub mod consts;
 pub mod instance_mesh;
+pub mod milky_way;
 pub mod moon;
 pub mod pipelines;
 #[allow(clippy::module_inception)]

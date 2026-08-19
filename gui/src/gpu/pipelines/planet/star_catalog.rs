@@ -22,7 +22,9 @@ struct StarUniforms {
     camera_position: [f32; 4],
     viewport_size: [f32; 2],
     star_distance: f32,
-    _padding: f32,
+    earth_radius: f32,
+    limb_fade_width: f32,
+    _padding: [f32; 3],
 }
 
 impl StarUniforms {
@@ -38,7 +40,9 @@ impl StarUniforms {
             camera_position: [camera.eye.x, camera.eye.y, camera.eye.z, 1.0],
             viewport_size: [width.max(1.0), height.max(1.0)],
             star_distance,
-            _padding: 0.0,
+            earth_radius: crate::model::system::EARTH_RADIUS_KM,
+            limb_fade_width: 3.0_f32.to_radians(),
+            _padding: [0.0; 3],
         }
     }
 }
