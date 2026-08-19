@@ -8,6 +8,10 @@ pub struct Uniforms {
     earth_rotation_angle: f32,
     _padding: [u32; 3],
     camera_position: [f32; 4],
+    cloud_radius: f32,
+    cloud_time: f32,
+    cloud_shadow_strength: f32,
+    _padding2: f32,
 }
 
 impl Uniforms {
@@ -15,6 +19,9 @@ impl Uniforms {
         camera: &Camera,
         sun_direction: [f32; 3],
         earth_rotation_angle: f32,
+        cloud_radius: f32,
+        cloud_time: f32,
+        cloud_shadow_strength: f32,
     ) -> Self {
         Self {
             view_proj: camera.build_view_projection_matrix().into(),
@@ -22,6 +29,10 @@ impl Uniforms {
             earth_rotation_angle,
             _padding: [0, 0, 0],
             camera_position: [camera.eye.x, camera.eye.y, camera.eye.z, 1.0],
+            cloud_radius,
+            cloud_time,
+            cloud_shadow_strength,
+            _padding2: 0.0,
         }
     }
 

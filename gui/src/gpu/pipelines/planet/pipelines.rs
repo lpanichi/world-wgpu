@@ -237,6 +237,9 @@ impl Pipelines {
             camera,
             [sun_dir.x, sun_dir.y, sun_dir.z],
             earth_rotation_angle,
+            crate::model::system::EARTH_RADIUS_KM * 1.0055,
+            elapsed,
+            0.6,
         );
 
         // Satellites

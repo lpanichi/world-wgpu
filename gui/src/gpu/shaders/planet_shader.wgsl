@@ -3,6 +3,10 @@ struct Uniforms {
     sun_direction: vec4<f32>,
     earth_rotation_angle: f32,
     camera_position: vec4<f32>,
+    cloud_radius: f32,
+    cloud_time: f32,
+    cloud_shadow_strength: f32,
+    _padding2: f32,
 }
 @group(1) @binding(0) var<uniform> uniforms: Uniforms;
 
@@ -56,6 +60,82 @@ fn hash2(p: vec2<f32>) -> vec2<f32> {
         dot(p, vec2<f32>(269.5, 183.3)),
     );
     return fract(sin(v) * 43758.5453);
+}
+
+// Cloud-pattern noise duplicated from cloud_shader.wgsl so ground shadows sample
+// the exact same procedural field as the visible cloud shell.
+fn hash(p: vec3<f32>) -> f32 {
+    var p3 = fract(p * 0.1031);
+    p3 = p3 + dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+fn noise3d(p: vec3<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+
+    return mix(
+        mix(
+            mix(hash(i + vec3<f32>(0.0, 0.0, 0.0)), hash(i + vec3<f32>(1.0, 0.0, 0.0)), u.x),
+            mix(hash(i + vec3<f32>(0.0, 1.0, 0.0)), hash(i + vec3<f32>(1.0, 1.0, 0.0)), u.x),
+            u.y,
+        ),
+        mix(
+            mix(hash(i + vec3<f32>(0.0, 0.0, 1.0)), hash(i + vec3<f32>(1.0, 0.0, 1.0)), u.x),
+            mix(hash(i + vec3<f32>(0.0, 1.0, 1.0)), hash(i + vec3<f32>(1.0, 1.0, 1.0)), u.x),
+            u.y,
+        ),
+        u.z,
+    );
+}
+
+fn fbm(p: vec3<f32>) -> f32 {
+    var value = 0.0;
+    var amplitude = 0.5;
+    var frequency = 1.0;
+    for (var i = 0; i < 4; i = i + 1) {
+        value = value + amplitude * noise3d(p * frequency);
+        amplitude = amplitude * 0.5;
+        frequency = frequency * 2.0;
+    }
+    return value;
+}
+
+// Ground shadow cast by the cloud shell: from the surface point, march along
+// the sun direction until the cloud shell is reached and sample the cloud field
+// there (in ECEF, matching cloud_shader.wgsl). Denser cloud -> darker ground.
+fn cloud_shadow(world_pos: vec3<f32>) -> f32 {
+    let c = cos(-uniforms.earth_rotation_angle);
+    let s = sin(-uniforms.earth_rotation_angle);
+    // ECEF point and sun direction (cloud pattern rotates with the Earth).
+    let ecef = vec3<f32>(
+        c * world_pos.x - s * world_pos.y,
+        s * world_pos.x + c * world_pos.y,
+        world_pos.z,
+    );
+    let sun = normalize(uniforms.sun_direction.xyz);
+    let sun_ecef = vec3<f32>(
+        c * sun.x - s * sun.y,
+        s * sun.x + c * sun.y,
+        sun.z,
+    );
+
+    // Intersect |ecef + t*sun| = cloud_radius (a = |sun|^2 = 1).
+    let b = 2.0 * dot(ecef, sun_ecef);
+    let c0 = dot(ecef, ecef) - uniforms.cloud_radius * uniforms.cloud_radius;
+    let disc = b * b - 4.0 * c0;
+    if disc < 0.0 {
+        return 0.0;
+    }
+    let t = (-b + sqrt(disc)) * 0.5;
+    let q = ecef + sun_ecef * t;
+
+    let dir = normalize(q);
+    let drift = uniforms.cloud_time * 0.003;
+    let noise_pos = dir * 3.8 + vec3<f32>(drift, drift * 0.7, drift * 0.3);
+    let density = fbm(noise_pos);
+    return smoothstep(0.32, 0.62, density);
 }
 
 // Procedural night lights: scattered hash dots over a lat/lon grid, appearing on
@@ -119,8 +199,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // max(dot(n, l), 0) cliff, so the day/night boundary fades gradually.
     let lit_strength = smoothstep(-0.1, 0.1, ndl);
 
+    // Ground shadows cast by the cloud layer (only meaningful on the day side).
+    let shadow = 1.0 - cloud_shadow(in.world_position) * uniforms.cloud_shadow_strength;
+
     // Diffuse lighting.
-    let lit = base_color * lit_strength;
+    let lit = base_color * lit_strength * shadow;
 
     // Ocean specular: Blinn-Phong glint with a Schlick fresnel factor. Water has
     // a low normal-incidence reflectance (F0 ~ 0.02) that brightens toward 1 at
@@ -139,10 +222,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Ambient floor so the night side never goes flat black (city lights build
     // on top of this later).
-    let ambient = base_color * 0.02;
+    let ambient = base_color * 0.02 * shadow;
 
     let color = lit
-        + ocean_spec
+        + ocean_spec * shadow
         + ambient
         + city_lights(in.texture_coords, base_color, ndl, ndv);
     return vec4<f32>(color, 1.0);

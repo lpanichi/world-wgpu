@@ -120,8 +120,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let diffuse = max(dot(normal, sun), 0.0);
     let lit = 0.3 + 0.7 * diffuse;
 
+    // Fade alpha near the limb: at grazing angles the shell is seen edge-on and
+    // would hard-cut against the atmosphere, so dissolve it over ~10° from the
+    // silhouette.
+    let view_vec = normalize(uniforms.camera_position.xyz - in.world_position);
+    let incidence = clamp(dot(view_vec, normal), 0.0, 1.0);
+    let limb_fade = smoothstep(0.02, 0.18, incidence);
+
     let cloud_color = vec3<f32>(1.0, 1.0, 1.0) * lit;
-    let alpha = cloud * 0.45;
+    let alpha = cloud * 0.45 * limb_fade;
 
     return vec4<f32>(cloud_color, alpha);
 }
