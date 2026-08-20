@@ -92,6 +92,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let normal = normalize(in.world_normal);
     let sun = normalize(uniforms.sun_direction.xyz);
 
+    // Fade alpha near the limb: at grazing angles the shell is seen edge-on and
+    // would hard-cut against the atmosphere, so dissolve it over ~10° from the
+    // silhouette. Computed first so fully faded fragments skip the costly
+    // noise evaluation below.
+    let view_vec = normalize(uniforms.camera_position.xyz - in.world_position);
+    let incidence = clamp(dot(view_vec, normal), 0.0, 1.0);
+    let limb_fade = smoothstep(0.02, 0.18, incidence);
+    if limb_fade <= 0.0 {
+        discard;
+    }
+
     // Use ECEF position for cloud pattern (clouds rotate with Earth)
     let ecef_dir = normalize(in.ecef_position);
 
@@ -100,15 +111,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let noise_scale = 3.8;
     let noise_pos = ecef_dir * noise_scale + vec3<f32>(drift, drift * 0.7, drift * 0.3);
 
-    // Derivative-aware supersampling to suppress far-distance subpixel shimmer.
+    // Derivative-aware supersampling to suppress subpixel shimmer. The second
+    // tap (half-pixel diagonal) only helps where the pattern varies nearly
+    // subpixel — far zooms and the grazing limb, where the footprint spikes.
+    // Everywhere else the taps coincide, so gate on the screen-space footprint
+    // and halve the noise cost over the bulk of the disc. The footprint varies
+    // smoothly over the globe, keeping the branch coherent across the screen.
     let dx = dpdx(noise_pos);
     let dy = dpdy(noise_pos);
-    let cloud_density = (
-        fbm(noise_pos)
-        + fbm(noise_pos + 0.5 * dx)
-        + fbm(noise_pos + 0.5 * dy)
-        + fbm(noise_pos + 0.5 * (dx + dy))
-    ) * 0.25;
+    let footprint = (length(dx) + length(dy)) * 0.5;
+    var cloud_density = fbm(noise_pos);
+    if footprint > 0.04 {
+        cloud_density = (cloud_density + fbm(noise_pos + 0.5 * (dx + dy))) * 0.5;
+    }
 
     // Slightly denser cloud coverage (+~10%) with antialiased transition.
     let base_low = 0.32;
@@ -119,13 +134,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Sunlit side
     let diffuse = max(dot(normal, sun), 0.0);
     let lit = 0.3 + 0.7 * diffuse;
-
-    // Fade alpha near the limb: at grazing angles the shell is seen edge-on and
-    // would hard-cut against the atmosphere, so dissolve it over ~10° from the
-    // silhouette.
-    let view_vec = normalize(uniforms.camera_position.xyz - in.world_position);
-    let incidence = clamp(dot(view_vec, normal), 0.0, 1.0);
-    let limb_fade = smoothstep(0.02, 0.18, incidence);
 
     let cloud_color = vec3<f32>(1.0, 1.0, 1.0) * lit;
     let alpha = cloud * 0.45 * limb_fade;

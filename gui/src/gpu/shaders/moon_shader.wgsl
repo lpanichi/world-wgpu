@@ -1,7 +1,20 @@
+// Moon impostor: a single camera-facing quad (the same billboard technique as
+// the sun) standing in for a sphere mesh. The fragment shader reconstructs the
+// exact sphere normal from the quad's local coordinates, so the procedural
+// albedo and phase lighting behave exactly as they did on the tessellated
+// mesh — while the GPU shades two triangles instead of 81,920 micro-triangles
+// packed into a dozen-pixel disc (which collapsed the frame rate whenever the
+// moon entered the view).
+//
+// The quad spans [-1,1] in local x/y; `moon_position.w` carries the radius in
+// world units so the quad subtends the apparent size of the real sphere.
+
 struct VsUniforms {
     view_proj: mat4x4<f32>,
+    camera_right: vec4<f32>,
+    camera_up: vec4<f32>,
     sun_direction: vec4<f32>,
-    moon_model: mat4x4<f32>,
+    moon_position: vec4<f32>,
 }
 
 @group(0) @binding(0)
@@ -13,17 +26,21 @@ struct VertexInput {
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) world_normal: vec3<f32>,
-}
+    @location(0) local_xy: vec2<f32>,
+};
 
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    let world_position = uniforms.moon_model * vec4<f32>(input.position, 1.0);
-    let world_normal = normalize((uniforms.moon_model * vec4<f32>(input.position, 0.0)).xyz);
+    let center = uniforms.moon_position.xyz;
+    let radius = uniforms.moon_position.w;
+    let offset =
+        uniforms.camera_right.xyz * input.position.x * radius +
+        uniforms.camera_up.xyz * input.position.y * radius;
+    let world = center + offset;
 
-    out.world_normal = world_normal;
-    out.position = uniforms.view_proj * world_position;
+    out.local_xy = input.position.xy;
+    out.position = uniforms.view_proj * vec4<f32>(world, 1.0);
     return out;
 }
 
@@ -112,7 +129,25 @@ fn moon_albedo(dir: vec3<f32>) -> vec3<f32> {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let dir = normalize(in.world_normal);
+    // Outside the inscribed circle there is no sphere — the quad corner is
+    // empty sky.
+    let r2 = dot(in.local_xy, in.local_xy);
+    if r2 > 1.0 {
+        discard;
+    }
+
+    // Reconstruct the sphere surface normal (impostor): x/y come from the
+    // quad, z completes the unit sphere. The view axis points from the moon
+    // toward the camera; with the orthonormal billboard basis it is recovered
+    // as cross(right, up). The resulting normal is a world-space direction,
+    // so the albedo field stays fixed in the moon frame as the camera orbits.
+    let view_axis = normalize(cross(uniforms.camera_right.xyz, uniforms.camera_up.xyz));
+    let dir = normalize(
+        uniforms.camera_right.xyz * in.local_xy.x +
+        uniforms.camera_up.xyz * in.local_xy.y +
+        view_axis * sqrt(1.0 - r2),
+    );
+
     let sun = normalize(uniforms.sun_direction.xyz);
     let diffuse = max(dot(dir, sun), 0.0);
 

@@ -31,6 +31,9 @@ pub struct BloomPipeline {
     resolved_hdr: Option<Texture>,
     bloom_a: Option<Texture>,
     bloom_b: Option<Texture>,
+    resolved_view: Option<TextureView>,
+    bloom_a_view: Option<TextureView>,
+    bloom_b_view: Option<TextureView>,
     resolve_bg: Option<BindGroup>,
     extract_bg: Option<BindGroup>,
     blur_bg: Option<BindGroup>,
@@ -215,6 +218,9 @@ impl BloomPipeline {
             resolved_hdr: None,
             bloom_a: None,
             bloom_b: None,
+            resolved_view: None,
+            bloom_a_view: None,
+            bloom_b_view: None,
             resolve_bg: None,
             extract_bg: None,
             blur_bg: None,
@@ -319,6 +325,11 @@ impl BloomPipeline {
         self.resolved_hdr = Some(resolved_hdr);
         self.bloom_a = Some(bloom_a);
         self.bloom_b = Some(bloom_b);
+        // Views are created once per resize and reused every frame instead of
+        // re-allocating them per render.
+        self.resolved_view = Some(resolved_view);
+        self.bloom_a_view = Some(bloom_a_view);
+        self.bloom_b_view = Some(bloom_b_view);
     }
 
     /// Run the whole post-processing chain: resolve the MSAA scene into HDR,
@@ -331,12 +342,14 @@ impl BloomPipeline {
         clip_bounds: &iced::Rectangle<u32>,
     ) {
         let (Some(resolved_view), Some(bloom_a_view), Some(bloom_b_view)) = (
-            self.resolved_hdr.as_ref().map(|t| t.create_view(&TextureViewDescriptor::default())),
-            self.bloom_a.as_ref().map(|t| t.create_view(&TextureViewDescriptor::default())),
-            self.bloom_b.as_ref().map(|t| t.create_view(&TextureViewDescriptor::default())),
+            self.resolved_view.as_ref(),
+            self.bloom_a_view.as_ref(),
+            self.bloom_b_view.as_ref(),
         ) else {
             return;
         };
+
+        let bloom_enabled = self.uniforms.enabled == 1;
 
         // 1. Resolve MSAA -> full-size HDR (cleared to black so the area outside
         //    the scissored scene stays empty for the later passes).
@@ -348,7 +361,7 @@ impl BloomPipeline {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Bloom Resolve Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &resolved_view,
+                    view: resolved_view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -379,56 +392,61 @@ impl BloomPipeline {
             pass.draw(0..3, 0..1);
         }
 
-        // 2. Extract + downsample bright values -> bloom_a.
-        let bg = match &self.extract_bg {
-            Some(bg) => bg,
-            None => return,
-        };
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Bloom Extract Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &bloom_a_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-            pass.set_pipeline(&self.extract);
-            pass.set_bind_group(0, bg, &[]);
-            pass.draw(0..3, 0..1);
-        }
+        // 2 + 3. Extract + downsample bright values, then gaussian blur. Skipped
+        //    entirely when bloom is off — the composite pass branches on the
+        //    same flag and never reads (possibly stale) bloom contents.
+        if bloom_enabled {
+            // Extract + downsample bright values -> bloom_a.
+            let bg = match &self.extract_bg {
+                Some(bg) => bg,
+                None => return,
+            };
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Bloom Extract Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: bloom_a_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                pass.set_pipeline(&self.extract);
+                pass.set_bind_group(0, bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
 
-        // 3. Gaussian blur bloom_a -> bloom_b.
-        let bg = match &self.blur_bg {
-            Some(bg) => bg,
-            None => return,
-        };
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Bloom Blur Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &bloom_b_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-            pass.set_pipeline(&self.blur);
-            pass.set_bind_group(0, bg, &[]);
-            pass.draw(0..3, 0..1);
+            // Gaussian blur bloom_a -> bloom_b.
+            let bg = match &self.blur_bg {
+                Some(bg) => bg,
+                None => return,
+            };
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Bloom Blur Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: bloom_b_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                pass.set_pipeline(&self.blur);
+                pass.set_bind_group(0, bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
         }
 
         // 4. Composite: scene + bloom, tone mapped, gamma encoded -> surface.

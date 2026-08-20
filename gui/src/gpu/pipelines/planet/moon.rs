@@ -1,29 +1,35 @@
 use crate::gpu::pipelines::planet::camera::Camera;
 use crate::gpu::pipelines::planet::consts::{DEPTH_FORMAT, MSAA_SAMPLE_COUNT};
+use crate::gpu::pipelines::planet::instance_mesh::dot_vertices;
 use crate::gpu::pipelines::planet::vertex::PositionVertex;
-use geometry::tesselation::build_sphere;
 use iced::wgpu::{
     self, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,
     BufferDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderStages, TextureFormat,
 };
-use nalgebra::{Matrix4, Vector3};
+use nalgebra::Vector3;
 
+/// Moon radius in km — sent to the shader (in `moon_position.w`) so the
+/// billboard quad subtends the exact apparent size of the sphere it replaces.
 const MOON_RADIUS_KM: f32 = 1737.4;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MoonUniforms {
     pub view_proj: [[f32; 4]; 4],
+    pub camera_right: [f32; 4],
+    pub camera_up: [f32; 4],
     pub sun_direction: [f32; 4],
-    pub moon_model: [[f32; 4]; 4],
+    pub moon_position: [f32; 4],
 }
 
 impl MoonUniforms {
     pub fn new() -> Self {
         Self {
             view_proj: nalgebra::Matrix4::identity().into(),
+            camera_right: [1.0, 0.0, 0.0, 0.0],
+            camera_up: [0.0, 1.0, 0.0, 0.0],
             sun_direction: [1.0, 0.0, 0.0, 0.0],
-            moon_model: nalgebra::Matrix4::identity().into(),
+            moon_position: [0.0, 0.0, 0.0, 1.0],
         }
     }
 }
@@ -34,6 +40,16 @@ impl Default for MoonUniforms {
     }
 }
 
+/// The moon is drawn as a single camera-facing quad (impostor sphere): the
+/// fragment shader reconstructs the exact sphere normal per pixel and runs the
+/// procedural albedo on it. A real sphere mesh was a severe performance trap —
+/// at its apparent size (~0.5°, a dozen pixels) the 81,920-triangle icosphere
+/// packed >1,000 micro-triangles into every covered pixel, and each one
+/// launched fragment quads running the expensive noise chain. Whenever the
+/// moon entered the view the frame rate collapsed; clipped to nothing when
+/// outside it, which made the cost view-dependent. The impostor costs two
+/// triangles and one shader invocation per pixel, with identical visuals at
+/// any realistic viewing distance (hemisphere approximation error < 0.3°).
 pub struct MoonPipeline {
     pipeline: RenderPipeline,
     vertex_buffer: Buffer,
@@ -44,25 +60,9 @@ pub struct MoonPipeline {
 
 impl MoonPipeline {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: TextureFormat) -> Self {
-        // Build a low-subdiv sphere for moon geometry
-        let sphere_tris = build_sphere();
-        let vertices: Vec<PositionVertex> = sphere_tris
-            .iter()
-            .flat_map(|tri| {
-                [
-                    PositionVertex {
-                        position: [tri[0].x, tri[0].y, tri[0].z],
-                    },
-                    PositionVertex {
-                        position: [tri[1].x, tri[1].y, tri[1].z],
-                    },
-                    PositionVertex {
-                        position: [tri[2].x, tri[2].y, tri[2].z],
-                    },
-                ]
-            })
-            .collect();
-
+        // Camera-facing quad spanning [-1,1] in local x/y (same technique as
+        // the sun billboard).
+        let vertices = dot_vertices();
         let vertex_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("Moon Vertex Buffer"),
             size: (std::mem::size_of::<PositionVertex>() * vertices.len()) as u64,
@@ -124,7 +124,8 @@ impl MoonPipeline {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                // Two camera-facing triangles; nothing meaningful to cull.
+                cull_mode: None,
                 unclipped_depth: false,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
@@ -171,18 +172,26 @@ impl MoonPipeline {
         moon_position_eci: [f64; 3],
         sun_dir: Vector3<f32>,
     ) {
-        let translation = Matrix4::new_translation(&Vector3::new(
-            moon_position_eci[0] as f32,
-            moon_position_eci[1] as f32,
-            moon_position_eci[2] as f32,
-        ));
-        let scale = Matrix4::new_scaling(MOON_RADIUS_KM);
-        let model = translation * scale;
-
         let mut uniforms = MoonUniforms::new();
         uniforms.view_proj = camera.build_view_projection_matrix().into();
         uniforms.sun_direction = [sun_dir.x, sun_dir.y, sun_dir.z, 0.0];
-        uniforms.moon_model = model.into();
+        // w carries the radius so the shader sizes the quad to match.
+        uniforms.moon_position = [
+            moon_position_eci[0] as f32,
+            moon_position_eci[1] as f32,
+            moon_position_eci[2] as f32,
+            MOON_RADIUS_KM,
+        ];
+
+        // Orthonormal camera basis for the billboard (same construction as the
+        // sun billboard). The fragment shader recovers the view axis as
+        // cross(camera_right, camera_up), so the basis must stay orthonormal.
+        let camera_forward = (camera.target - camera.eye).normalize();
+        let camera_right = camera_forward.cross(&camera.up.into_inner()).normalize();
+        let camera_up = camera_right.cross(&camera_forward).normalize();
+
+        uniforms.camera_right = [camera_right.x, camera_right.y, camera_right.z, 0.0];
+        uniforms.camera_up = [camera_up.x, camera_up.y, camera_up.z, 0.0];
 
         queue.write_buffer(&self.uniforms_buffer, 0, bytemuck::bytes_of(&uniforms));
     }

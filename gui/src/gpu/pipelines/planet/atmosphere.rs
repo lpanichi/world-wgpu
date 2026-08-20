@@ -2,7 +2,7 @@ use crate::gpu::pipelines::planet::camera::Camera;
 use crate::gpu::pipelines::planet::consts::{DEPTH_FORMAT, MSAA_SAMPLE_COUNT};
 use crate::gpu::pipelines::planet::vertex::PositionVertex;
 use crate::model::system::EARTH_RADIUS_KM;
-use geometry::tesselation::build_sphere;
+use geometry::tesselation::build_sphere_icosahedron;
 use iced::wgpu::{
     self, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,
     BufferDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderStages, TextureFormat,
@@ -54,8 +54,11 @@ pub struct AtmospherePipeline {
 
 impl AtmospherePipeline {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: TextureFormat) -> Self {
-        // Reuse the sphere geometry (unit sphere, scaled in shader)
-        let sphere_tris = build_sphere();
+        // Subdivision 5 is enough for a shell: worst-case silhouette error is
+        // sub-pixel (~0.3 px with the shell filling the screen) and the
+        // raymarch in the fragment shader provides all the detail. It costs
+        // 4x fewer vertices than the planet mesh (subdivision 6).
+        let sphere_tris = build_sphere_icosahedron(5);
         let vertices: Vec<PositionVertex> = sphere_tris
             .iter()
             .flat_map(|tri| {
@@ -122,10 +125,12 @@ impl AtmospherePipeline {
         });
 
         // The atmosphere is a transparent shell rendered additively (single
-        // scattering adds light in front of whatever is behind it). Both faces
-        // are drawn so an inside-of-atmosphere camera still sees the sky; the
-        // near shell writes depth so the coincident far shell fragment at the
-        // same pixel fails the depth test and the scattering isn't doubled.
+        // scattering adds light in front of whatever is behind it). Back faces
+        // are culled: for an outside camera only the near shell is visible, and
+        // rasterizing the far shell would double-shade the halo ring around the
+        // limb (triangles are not depth-sorted, so the far shell's expensive
+        // raymarch would run before the near shell's depth rejects it). The
+        // camera stays outside the ~80 km shell in every supported view.
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("Atmosphere Pipeline"),
             layout: Some(&pipeline_layout),
@@ -139,14 +144,15 @@ impl AtmospherePipeline {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
+                cull_mode: Some(wgpu::Face::Back),
                 unclipped_depth: false,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
-                depth_write_enabled: true, // Near shell occludes the far shell
+                // Safe to write depth: the atmosphere is drawn last.
+                depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),

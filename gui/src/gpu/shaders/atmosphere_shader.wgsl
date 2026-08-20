@@ -109,6 +109,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let step_len = (t_end - t_start) / f32(STEPS);
     const SUN_STEPS: i32 = 4;
 
+    // Phase functions depend only on the (fixed) view/sun angle — compute them
+    // once instead of per march step.
+    let cos_theta = dot(view_dir, sun);
+    let rayleigh_phase = 3.0 / (16.0 * PI) * (1.0 + cos_theta * cos_theta);
+    let g2 = MIE_G * MIE_G;
+    let mie_denom = (2.0 + g2) * pow(1.0 + g2 - 2.0 * MIE_G * cos_theta, 1.5);
+    let mie_phase = 3.0 / (8.0 * PI) * (1.0 - g2) * (1.0 + cos_theta * cos_theta) / mie_denom;
+
     var scattered: vec3<f32> = vec3<f32>(0.0);
     var airglow_sum: f32 = 0.0;
 
@@ -117,42 +125,41 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let pos = camera + view_dir * t;
         let height = max(length(pos) - uniforms.earth_radius, 0.0);
 
+        // Night-side airglow: faint emitted light in a thin shell. Cheap and
+        // independent of the sun, so it is accumulated for every sample.
+        let airglow = exp(-pow((height - AIRGLOW_ALTITUDE) / AIRGLOW_WIDTH, 2.0));
+        airglow_sum += airglow * step_len;
+
+        // Samples in earth shadow (night side) receive no direct sunlight:
+        // their scattering contribution is exactly zero, so skip the density
+        // exponentials and the sun optical-depth march entirely.
+        let sun_earth = ray_sphere(pos, sun, uniforms.earth_radius);
+        if sun_earth.x >= 0.0 {
+            continue;
+        }
+
         let density_r = exp(-height / RAYLEIGH_SCALE_HEIGHT);
         let density_m = exp(-height / MIE_SCALE_HEIGHT);
 
-        // Optical depth toward the sun. Samples in earth shadow (night side)
-        // receive no direct sunlight at all.
+        // Optical depth toward the sun.
         let sun_atmo = ray_sphere(pos, sun, uniforms.atmosphere_radius);
-        let sun_earth = ray_sphere(pos, sun, uniforms.earth_radius);
-        var sun_transmittance = vec3<f32>(0.0);
-        if sun_earth.x < 0.0 {
-            let s_len = sun_atmo.y / f32(SUN_STEPS);
-            var sun_tau_r = 0.0;
-            var sun_tau_m = 0.0;
-            for (var j: i32 = 0; j < SUN_STEPS; j = j + 1) {
-                let s_pos = pos + sun * (s_len * (f32(j) + 0.5));
-                let s_h = max(length(s_pos) - uniforms.earth_radius, 0.0);
-                sun_tau_r += exp(-s_h / RAYLEIGH_SCALE_HEIGHT) * s_len;
-                sun_tau_m += exp(-s_h / MIE_SCALE_HEIGHT) * s_len;
-            }
-            sun_transmittance = exp(-(sun_tau_r * RAYLEIGH_BETA + sun_tau_m * MIE_BETA));
+        let s_len = sun_atmo.y / f32(SUN_STEPS);
+        var sun_tau_r = 0.0;
+        var sun_tau_m = 0.0;
+        for (var j: i32 = 0; j < SUN_STEPS; j = j + 1) {
+            let s_pos = pos + sun * (s_len * (f32(j) + 0.5));
+            let s_h = max(length(s_pos) - uniforms.earth_radius, 0.0);
+            sun_tau_r += exp(-s_h / RAYLEIGH_SCALE_HEIGHT) * s_len;
+            sun_tau_m += exp(-s_h / MIE_SCALE_HEIGHT) * s_len;
         }
+        let sun_transmittance = exp(-(sun_tau_r * RAYLEIGH_BETA + sun_tau_m * MIE_BETA));
 
-        // Phase functions: cos of angle between view direction and sun.
-        let cos_theta = dot(view_dir, sun);
-        let rayleigh_phase = 3.0 / (16.0 * PI) * (1.0 + cos_theta * cos_theta);
-        let g2 = MIE_G * MIE_G;
-        let mie_denom = (2.0 + g2) * pow(1.0 + g2 - 2.0 * MIE_G * cos_theta, 1.5);
-        let mie_phase = 3.0 / (8.0 * PI) * (1.0 - g2) * (1.0 + cos_theta * cos_theta) / mie_denom;
+        // Phase functions were hoisted out of the loop (view/sun angle only).
 
         let scatter_r = RAYLEIGH_BETA * density_r * rayleigh_phase;
         let scatter_m = MIE_BETA * density_m * mie_phase;
 
         scattered += (scatter_r + scatter_m) * sun_transmittance * step_len;
-
-        // Night-side airglow: faint emitted light in a thin shell.
-        let airglow = exp(-pow((height - AIRGLOW_ALTITUDE) / AIRGLOW_WIDTH, 2.0));
-        airglow_sum += airglow * step_len;
     }
 
     let color = scattered * SUN_INTENSITY + NIGHT_GLOW * airglow_sum;

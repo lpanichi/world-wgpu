@@ -147,8 +147,11 @@ const CITY_RADIUS: f32 = 0.28;
 fn city_lights(uv: vec2<f32>, base_color: vec3<f32>, ndl: f32, ndv: f32) -> vec3<f32> {
     // Land mask: ocean is blue-dominant, land is green (vegetation) / brown (desert).
     let is_land = base_color.b <= base_color.r || base_color.b <= base_color.g;
-    // Lights switch on as the sun sets below the local horizon.
-    let night = 1.0 - smoothstep(-0.02, 0.25, ndl);
+    // Lights switch on as the sun sets below the local horizon. The fade band
+    // ends at ~7° sun elevation: any higher and daylight swamps artificial
+    // lights physically — and keeping the band narrow confines the 3x3 cell
+    // loop below to a thin dusk strip instead of a wide swath of the day side.
+    let night = 1.0 - smoothstep(-0.04, 0.12, ndl);
     // Fade at grazing angles: limb lights sit behind a thick atmosphere column.
     let limb = 1.0 - smoothstep(0.93, 0.995, ndv);
     if !is_land || night <= 0.0 {
@@ -199,8 +202,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // max(dot(n, l), 0) cliff, so the day/night boundary fades gradually.
     let lit_strength = smoothstep(-0.1, 0.1, ndl);
 
-    // Ground shadows cast by the cloud layer (only meaningful on the day side).
-    let shadow = 1.0 - cloud_shadow(in.world_position) * uniforms.cloud_shadow_strength;
+    // Ground shadows cast by the cloud layer. Only computed on the day side:
+    // every term they multiply is already ~zero at night, and the fbm is the
+    // most expensive part of this shader. Also skipped entirely when the cloud
+    // layer is hidden (strength is zeroed by the host in that case).
+    var shadow = 1.0;
+    if lit_strength > 0.001 && uniforms.cloud_shadow_strength > 0.0 {
+        shadow = 1.0 - cloud_shadow(in.world_position) * uniforms.cloud_shadow_strength;
+    }
 
     // Diffuse lighting.
     let lit = base_color * lit_strength * shadow;
@@ -224,9 +233,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // on top of this later).
     let ambient = base_color * 0.02 * shadow;
 
+    // Gated on the enable flag so the 3x3 cell loop never runs when night
+    // lights are toggled off.
+    var lights = vec3<f32>(0.0);
+    if uniforms.city_lights_enabled > 0.0 {
+        lights = city_lights(in.texture_coords, base_color, ndl, ndv);
+    }
+
     let color = lit
         + ocean_spec * shadow
         + ambient
-        + city_lights(in.texture_coords, base_color, ndl, ndv) * uniforms.city_lights_enabled;
+        + lights;
     return vec4<f32>(color, 1.0);
 }

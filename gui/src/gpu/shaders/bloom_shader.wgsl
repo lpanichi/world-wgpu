@@ -150,7 +150,14 @@ fn fs_composite(@builtin(position) frag_pos: vec4<f32>) -> @location(0) vec4<f32
     let hdr = textureSample(hdr_color, samp, uv);
     let bloom = textureSample(bloom_texture, samp, uv);
 
-    var color = aces_tonemap(hdr.rgb + bloom.rgb * f32(uniforms.enabled));
+    // Branch (rather than multiply by the flag) so stale/undefined bloom
+    // contents can never leak — or poison the tonemap with NaNs — when bloom
+    // is disabled and its passes were skipped.
+    var scene = hdr.rgb;
+    if uniforms.enabled == 1u {
+        scene = scene + bloom.rgb;
+    }
+    var color = aces_tonemap(scene);
     if uniforms.apply_gamma == 1u {
         color = encode_gamma(color);
     }

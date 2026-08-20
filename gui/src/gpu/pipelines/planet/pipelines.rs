@@ -5,13 +5,13 @@ use iced::{
 };
 
 use crate::astro::Astral;
+use crate::gpu::pipelines::planet::cloud::{self, CloudPipeline};
 use crate::gpu::pipelines::planet::{
     atmosphere::AtmospherePipeline,
     bloom::BloomPipeline,
     buffer::write_or_grow,
     camera::Camera,
     clear_quad::ClearQuadPipeline,
-    cloud::CloudPipeline,
     consts::{DEPTH_FORMAT, HDR_FORMAT, MSAA_SAMPLE_COUNT},
     milky_way::MilkyWayPipeline,
     moon::MoonPipeline,
@@ -23,6 +23,7 @@ use crate::gpu::pipelines::planet::{
     uniforms::Uniforms,
     vertex::ColoredVertex,
 };
+use crate::model::system::EARTH_RADIUS_KM;
 use crate::{
     gpu::pipelines::planet::satellite::{SatellitePipeline, SatelliteRenderMode},
     model::system::System,
@@ -48,7 +49,9 @@ pub struct Pipelines {
     clear_quad: ClearQuadPipeline,
     bloom: BloomPipeline,
     msaa_color_texture: Option<wgpu::Texture>,
+    msaa_color_view: Option<wgpu::TextureView>,
     depth_texture: Option<wgpu::Texture>,
+    depth_view: Option<wgpu::TextureView>,
     depth_size: (u32, u32),
     show_clouds: bool,
     show_atmosphere: bool,
@@ -130,7 +133,9 @@ impl Pipelines {
             clear_quad,
             bloom,
             msaa_color_texture: None,
+            msaa_color_view: None,
             depth_texture: None,
+            depth_view: None,
             depth_size: (0, 0),
             show_clouds: true,
             show_atmosphere: true,
@@ -199,10 +204,13 @@ show_clouds: bool,
                     | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
+            // Views are created once per resize and reused every frame (a
+            // per-frame create_view leaks driver objects needlessly).
             let msaa_view = msaa_texture.create_view(&wgpu::TextureViewDescriptor::default());
             self.bloom.resize(device, &msaa_view, width, height);
             self.msaa_color_texture = Some(msaa_texture);
-            self.depth_texture = Some(device.create_texture(&wgpu::TextureDescriptor {
+            self.msaa_color_view = Some(msaa_view);
+            let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Depth Texture"),
                 size: wgpu::Extent3d {
                     width,
@@ -215,7 +223,9 @@ show_clouds: bool,
                 format: DEPTH_FORMAT,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
-            }));
+            });
+            self.depth_view = Some(depth_texture.create_view(&wgpu::TextureViewDescriptor::default()));
+            self.depth_texture = Some(depth_texture);
         }
 
         let (day_of_year, hour) = system.day_hour();
@@ -255,9 +265,10 @@ show_clouds: bool,
             camera,
             [sun_dir.x, sun_dir.y, sun_dir.z],
             earth_rotation_angle,
-            crate::model::system::EARTH_RADIUS_KM * 1.0055,
+            EARTH_RADIUS_KM * cloud::CLOUD_SCALE,
             elapsed,
-            0.6,
+            // No ground cloud shadows when the cloud layer is hidden.
+            if show_clouds { 0.6 } else { 0.0 },
             if self.show_night_lights { 1.0 } else { 0.0 },
         );
 
@@ -319,17 +330,9 @@ show_clouds: bool,
             return;
         }
 
-        let depth_view = self
-            .depth_texture
-            .as_ref()
-            .map(|tex| tex.create_view(&wgpu::TextureViewDescriptor::default()));
+        let depth_view = self.depth_view.as_ref();
 
-        let msaa_view = self
-            .msaa_color_texture
-            .as_ref()
-            .map(|tex| tex.create_view(&wgpu::TextureViewDescriptor::default()));
-
-        let Some(msaa_view) = msaa_view.as_ref() else {
+        let Some(msaa_view) = self.msaa_color_view.as_ref() else {
             return;
         };
 
@@ -345,12 +348,15 @@ show_clouds: bool,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: depth_view.as_ref().map(|view| {
+                depth_stencil_attachment: depth_view.map(|view| {
                     wgpu::RenderPassDepthStencilAttachment {
                         view,
                         depth_ops: Some(wgpu::Operations {
                             load: wgpu::LoadOp::Clear(1.0),
-                            store: wgpu::StoreOp::Store,
+                            // The depth buffer is never sampled after the
+                            // scene pass — discarding the store saves
+                            // multisampled depth bandwidth.
+                            store: wgpu::StoreOp::Discard,
                         }),
                         stencil_ops: None,
                     }

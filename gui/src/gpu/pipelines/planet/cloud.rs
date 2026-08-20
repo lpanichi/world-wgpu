@@ -2,7 +2,7 @@ use crate::gpu::pipelines::planet::consts::{DEPTH_FORMAT, MSAA_SAMPLE_COUNT};
 use crate::gpu::pipelines::planet::camera::Camera;
 use crate::gpu::pipelines::planet::vertex::PositionVertex;
 use crate::model::system::EARTH_RADIUS_KM;
-use geometry::tesselation::build_sphere;
+use geometry::tesselation::build_sphere_icosahedron;
 use iced::wgpu::{
     self, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,
     BufferDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderStages, TextureFormat,
@@ -10,7 +10,8 @@ use iced::wgpu::{
 use nalgebra::Vector3;
 
 /// Cloud layer radius = Earth + ~35km to avoid depth-fighting at far zoom.
-const CLOUD_SCALE: f32 = 1.0055;
+/// Shared so the planet shader's ground shadows sample the exact same shell.
+pub const CLOUD_SCALE: f32 = 1.0055;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -54,7 +55,11 @@ pub struct CloudPipeline {
 
 impl CloudPipeline {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: TextureFormat) -> Self {
-        let sphere_tris = build_sphere();
+        // Subdivision 5 is enough for a shell: worst-case silhouette error is
+        // sub-pixel (~0.3 px with the shell filling the screen) and all the
+        // visual detail comes from the fragment shader noise, not the mesh.
+        // It costs 4x fewer vertices than the planet mesh (subdivision 6).
+        let sphere_tris = build_sphere_icosahedron(5);
         let vertices: Vec<PositionVertex> = sphere_tris
             .iter()
             .flat_map(|tri| {
