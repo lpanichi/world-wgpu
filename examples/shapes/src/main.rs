@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 enum Message {
     Tick,
     Event(iced::event::Event),
+    Shot(gui::screenshot::ShotMessage),
 }
 
 struct ShapesSimulation {
@@ -27,6 +28,7 @@ struct ShapesSimulation {
     shape_ranges: Vec<(u32, u32)>,
     text_quads: Vec<[f32; TEXT_VERTEX_FLOATS]>,
     help_text: String,
+    shot: gui::screenshot::AutoShot,
 }
 
 impl ShapesSimulation {
@@ -66,6 +68,7 @@ impl ShapesSimulation {
             shape_ranges,
             text_quads,
             help_text: "Shapes: Pan arrows | Rotate right-drag | Zoom +/-".to_string(),
+            shot: gui::screenshot::AutoShot::from_env(),
         }
     }
 }
@@ -164,13 +167,23 @@ impl shader::Program<Message> for ShapesSimulation {
     }
 }
 
-fn update(sim: &mut ShapesSimulation, message: Message) {
+fn update(sim: &mut ShapesSimulation, message: Message) -> iced::Task<Message> {
     match message {
-        Message::Tick => {}
+        Message::Tick => {
+            if let Some(task) = sim.shot.on_frame() {
+                return task.map(Message::Shot);
+            }
+        }
         Message::Event(event) => {
             sim.control.handle_event(&event, &mut sim.camera);
         }
+        Message::Shot(msg) => {
+            if let Some(task) = sim.shot.handle(msg) {
+                return task.map(Message::Shot);
+            }
+        }
     }
+    iced::Task::none()
 }
 
 fn view(sim: &ShapesSimulation) -> Element<'_, Message> {
@@ -370,9 +383,12 @@ fn create_sample_text_quads() -> Vec<[f32; TEXT_VERTEX_FLOATS]> {
 fn main() -> iced::Result {
     env_logger::init();
 
-    iced::application(ShapesSimulation::new, update, view)
-        .subscription(|_state: &ShapesSimulation| {
-            subscription(|_| Message::Tick, Message::Event)
-        })
-        .run()
+    let mut app = iced::application(ShapesSimulation::new, update, view);
+    if let Some(size) = gui::screenshot::window_size() {
+        app = app.window_size(size);
+    }
+    app.subscription(|_state: &ShapesSimulation| {
+        subscription(|_| Message::Tick, Message::Event)
+    })
+    .run()
 }

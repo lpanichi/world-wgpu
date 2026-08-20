@@ -21,12 +21,14 @@ use nalgebra::Point3;
 enum Message {
     Tick,
     Event(iced::event::Event),
+    Shot(gui::screenshot::ShotMessage),
 }
 
 struct SolsticeSimulation {
     program: ProgramSimulation,
     validation_info: String,
     control: CameraControl,
+    shot: gui::screenshot::AutoShot,
 }
 
 impl SolsticeSimulation {
@@ -122,6 +124,7 @@ impl SolsticeSimulation {
             program,
             validation_info,
             control: CameraControl::default(),
+            shot: gui::screenshot::AutoShot::from_env(),
         }
     }
 }
@@ -145,13 +148,23 @@ impl iced::widget::shader::Program<Message> for SolsticeSimulation {
     }
 }
 
-fn update(sim: &mut SolsticeSimulation, message: Message) {
+fn update(sim: &mut SolsticeSimulation, message: Message) -> iced::Task<Message> {
     match message {
-        Message::Tick => {}
+        Message::Tick => {
+            if let Some(task) = sim.shot.on_frame() {
+                return task.map(Message::Shot);
+            }
+        }
         Message::Event(event) => {
             sim.control.handle_event(&event, &mut sim.program.camera);
         }
+        Message::Shot(msg) => {
+            if let Some(task) = sim.shot.handle(msg) {
+                return task.map(Message::Shot);
+            }
+        }
     }
+    iced::Task::none()
 }
 
 fn view(sim: &SolsticeSimulation) -> Element<'_, Message> {
@@ -168,9 +181,12 @@ fn view(sim: &SolsticeSimulation) -> Element<'_, Message> {
 fn main() -> iced::Result {
     env_logger::init();
 
-    iced::application(SolsticeSimulation::new, update, view)
-        .subscription(|_state: &SolsticeSimulation| {
-            subscription(|_| Message::Tick, Message::Event)
-        })
-        .run()
+    let mut app = iced::application(SolsticeSimulation::new, update, view);
+    if let Some(size) = gui::screenshot::window_size() {
+        app = app.window_size(size);
+    }
+    app.subscription(|_state: &SolsticeSimulation| {
+        subscription(|_| Message::Tick, Message::Event)
+    })
+    .run()
 }

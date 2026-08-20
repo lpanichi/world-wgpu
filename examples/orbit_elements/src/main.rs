@@ -24,6 +24,7 @@ use nalgebra::Point3;
 enum Message {
     Tick,
     Event(iced::event::Event),
+    Shot(gui::screenshot::ShotMessage),
     // Orbital parameter sliders
     RaanChanged(f32),
     InclinationChanged(f32),
@@ -51,6 +52,7 @@ struct OrbitElementsSimulation {
     show_perigee_apogee: bool,
     // Camera interaction
     control: CameraControl,
+    shot: gui::screenshot::AutoShot,
 }
 
 impl OrbitElementsSimulation {
@@ -118,6 +120,7 @@ impl OrbitElementsSimulation {
             show_inclination_arc: true,
             show_perigee_apogee: true,
             control: CameraControl::default(),
+            shot: gui::screenshot::AutoShot::from_env(),
         }
     }
 
@@ -284,9 +287,13 @@ impl iced::widget::shader::Program<Message> for OrbitElementsSimulation {
     }
 }
 
-fn update(sim: &mut OrbitElementsSimulation, message: Message) {
+fn update(sim: &mut OrbitElementsSimulation, message: Message) -> iced::Task<Message> {
     match message {
-        Message::Tick => {}
+        Message::Tick => {
+            if let Some(task) = sim.shot.on_frame() {
+                return task.map(Message::Shot);
+            }
+        }
         Message::RaanChanged(v) => {
             sim.raan = v;
             sim.rebuild_orbital_elements();
@@ -322,7 +329,13 @@ fn update(sim: &mut OrbitElementsSimulation, message: Message) {
         Message::Event(event) => {
             sim.control.handle_event(&event, &mut sim.program.camera);
         }
+        Message::Shot(msg) => {
+            if let Some(task) = sim.shot.handle(msg) {
+                return task.map(Message::Shot);
+            }
+        }
     }
+    iced::Task::none()
 }
 
 fn view(sim: &OrbitElementsSimulation) -> Element<'_, Message> {
@@ -343,9 +356,12 @@ fn view(sim: &OrbitElementsSimulation) -> Element<'_, Message> {
 fn main() -> iced::Result {
     env_logger::init();
 
-    iced::application(OrbitElementsSimulation::new, update, view)
-        .subscription(|_state: &OrbitElementsSimulation| {
-            subscription(|_| Message::Tick, Message::Event)
-        })
-        .run()
+    let mut app = iced::application(OrbitElementsSimulation::new, update, view);
+    if let Some(size) = gui::screenshot::window_size() {
+        app = app.window_size(size);
+    }
+    app.subscription(|_state: &OrbitElementsSimulation| {
+        subscription(|_| Message::Tick, Message::Event)
+    })
+    .run()
 }

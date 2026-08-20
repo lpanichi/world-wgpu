@@ -23,12 +23,14 @@ use nalgebra::{Point3, Vector3};
 enum Message {
     Tick,
     Event(iced::event::Event),
+    Shot(gui::screenshot::ShotMessage),
 }
 
 struct VernalEquinoxSimulation {
     program: ProgramSimulation,
     validation_info: String,
     control: CameraControl,
+    shot: gui::screenshot::AutoShot,
 }
 
 impl VernalEquinoxSimulation {
@@ -140,6 +142,7 @@ impl VernalEquinoxSimulation {
             program,
             validation_info,
             control: CameraControl::default(),
+            shot: gui::screenshot::AutoShot::from_env(),
         }
     }
 }
@@ -163,13 +166,23 @@ impl iced::widget::shader::Program<Message> for VernalEquinoxSimulation {
     }
 }
 
-fn update(sim: &mut VernalEquinoxSimulation, message: Message) {
+fn update(sim: &mut VernalEquinoxSimulation, message: Message) -> iced::Task<Message> {
     match message {
-        Message::Tick => {}
+        Message::Tick => {
+            if let Some(task) = sim.shot.on_frame() {
+                return task.map(Message::Shot);
+            }
+        }
         Message::Event(event) => {
             sim.control.handle_event(&event, &mut sim.program.camera);
         }
+        Message::Shot(msg) => {
+            if let Some(task) = sim.shot.handle(msg) {
+                return task.map(Message::Shot);
+            }
+        }
     }
+    iced::Task::none()
 }
 
 fn view(sim: &VernalEquinoxSimulation) -> Element<'_, Message> {
@@ -186,9 +199,12 @@ fn view(sim: &VernalEquinoxSimulation) -> Element<'_, Message> {
 fn main() -> iced::Result {
     env_logger::init();
 
-    iced::application(VernalEquinoxSimulation::new, update, view)
-        .subscription(|_state: &VernalEquinoxSimulation| {
-            subscription(|_| Message::Tick, Message::Event)
-        })
-        .run()
+    let mut app = iced::application(VernalEquinoxSimulation::new, update, view);
+    if let Some(size) = gui::screenshot::window_size() {
+        app = app.window_size(size);
+    }
+    app.subscription(|_state: &VernalEquinoxSimulation| {
+        subscription(|_| Message::Tick, Message::Event)
+    })
+    .run()
 }

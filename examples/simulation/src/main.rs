@@ -105,6 +105,8 @@ enum Message {
     KpiSatIndexInput(String),
     // Boot
     AssetsLoaded(Result<Arc<PreloadedAssets>, String>),
+    // Screenshots
+    Shot(gui::screenshot::ShotMessage),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -169,10 +171,12 @@ struct Textured {
 
     // Manager: focused resource after click
     manager_focus: Option<SelectedObject>,
+    // Auto-screenshot state (README capture mode)
+    shot: gui::screenshot::AutoShot,
 }
 
 impl Textured {
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> iced::Task<Message> {
         match message {
             Message::KeyboardEvent(event) => self.handle_keyboard_event(event),
             Message::Event(event) => self.handle_event(event),
@@ -209,6 +213,13 @@ impl Textured {
                             self.kpi_distance_history.pop_front();
                         }
                     }
+                }
+                // Only start the screenshot countdown once the scene is live
+                // (asset preloading runs asynchronously at boot).
+                if !self.loading
+                    && let Some(task) = self.shot.on_frame()
+                {
+                    return task.map(Message::Shot);
                 }
             }
             Message::OnObjectSelected(object, hit_distance) => {
@@ -318,7 +329,7 @@ impl Textured {
                     _ => {
                         self.error_message =
                             "Altitude must be a positive number (km), e.g. 500".to_string();
-                        return;
+                        return iced::Task::none();
                     }
                 };
                 let inclination = match self.orbit_inclination_input.parse::<f32>() {
@@ -326,14 +337,14 @@ impl Textured {
                     _ => {
                         self.error_message =
                             "Inclination must be between -180° and 180°".to_string();
-                        return;
+                        return iced::Task::none();
                     }
                 };
                 let raan = match self.orbit_raan_input.parse::<f32>() {
                     Ok(v) => v,
                     _ => {
                         self.error_message = "RAAN must be a valid number (degrees)".to_string();
-                        return;
+                        return iced::Task::none();
                     }
                 };
                 let arg_perigee = match self.orbit_arg_perigee_input.parse::<f32>() {
@@ -341,7 +352,7 @@ impl Textured {
                     _ => {
                         self.error_message =
                             "Argument of perigee must be a valid number (degrees)".to_string();
-                        return;
+                        return iced::Task::none();
                     }
                 };
 
@@ -382,14 +393,14 @@ impl Textured {
                     Ok(v) if (-90.0..=90.0).contains(&v) => v,
                     _ => {
                         self.error_message = "Latitude must be between -90° and 90°".to_string();
-                        return;
+                        return iced::Task::none();
                     }
                 };
                 let lon = match self.station_lon_input.parse::<f32>() {
                     Ok(v) if (-180.0..=180.0).contains(&v) => v,
                     _ => {
                         self.error_message = "Longitude must be between -180° and 180°".to_string();
-                        return;
+                        return iced::Task::none();
                     }
                 };
 
@@ -403,7 +414,7 @@ impl Textured {
             Message::CreateOrbitSatellite => {
                 if self.program.system.orbits.is_empty() {
                     self.error_message = "No orbits available. Create an orbit first.".to_string();
-                    return;
+                    return iced::Task::none();
                 }
 
                 let orbit_index = self
@@ -442,7 +453,7 @@ impl Textured {
                     _ => {
                         self.error_message =
                             "Min latitude must be between -90° and 90°".to_string();
-                        return;
+                        return iced::Task::none();
                     }
                 };
                 let max_lat = match self.rect_max_lat_input.parse::<f32>() {
@@ -451,7 +462,7 @@ impl Textured {
                         self.error_message =
                             "Max latitude must be > min latitude and between -90° and 90°"
                                 .to_string();
-                        return;
+                        return iced::Task::none();
                     }
                 };
                 let min_lon = match self.rect_min_lon_input.parse::<f32>() {
@@ -459,7 +470,7 @@ impl Textured {
                     _ => {
                         self.error_message =
                             "Min longitude must be between -180° and 180°".to_string();
-                        return;
+                        return iced::Task::none();
                     }
                 };
                 let max_lon = match self.rect_max_lon_input.parse::<f32>() {
@@ -468,7 +479,7 @@ impl Textured {
                         self.error_message =
                             "Max longitude must be > min longitude and between -180° and 180°"
                                 .to_string();
-                        return;
+                        return iced::Task::none();
                     }
                 };
                 // Rectangle is drawn as a feature; we store it as a ground station pair for now.
@@ -627,7 +638,13 @@ impl Textured {
                     }
                 }
             }
+            Message::Shot(msg) => {
+                if let Some(task) = self.shot.handle(msg) {
+                    return task.map(Message::Shot);
+                }
+            }
         }
+        iced::Task::none()
     }
 
     fn handle_object_selected(&mut self, object: SelectedObject, hit_distance: Option<f32>) {
@@ -719,10 +736,10 @@ impl Textured {
                     };
                 }
                 Key::Character(ch) if ch == "+" || ch == "=" => {
-                    self.update(Message::IncreaseTimeScale);
+                    let _ = self.update(Message::IncreaseTimeScale);
                 }
                 Key::Character(ch) if ch == "-" || ch == "_" => {
-                    self.update(Message::DecreaseTimeScale);
+                    let _ = self.update(Message::DecreaseTimeScale);
                 }
                 _ => (),
             }
@@ -797,7 +814,7 @@ impl Textured {
                         let (selected, hit_distance) =
                             self.program
                                 .pick_object(origin, direction, cursor_ndc, (w, h));
-                        self.update(Message::OnObjectSelected(selected, hit_distance));
+                        let _ = self.update(Message::OnObjectSelected(selected, hit_distance));
                     }
                 }
             }
@@ -1265,6 +1282,7 @@ impl Default for Textured {
             kpi_sat_index: "0".to_string(),
             kpi_distance_history: VecDeque::new(),
             manager_focus: None,
+            shot: gui::screenshot::AutoShot::from_env(),
         }
     }
 }
@@ -1276,20 +1294,23 @@ fn main() -> iced::Result {
 
     debug!("logging initialized for module: {}", module_path!());
 
-    iced::application(
+    let mut app = iced::application(
         Textured::boot,
         Textured::update,
         Textured::view,
-    )
-        .subscription(|_state: &Textured| {
-            iced::Subscription::batch([
-                iced::keyboard::listen().map(Message::KeyboardEvent),
-                iced::event::listen().map(Message::Event),
-                time::every(milliseconds(16)).map(|_| Message::Tick),
-            ])
-        })
-        .theme(Theme::KanagawaDragon)
-        .run()
+    );
+    if let Some(size) = gui::screenshot::window_size() {
+        app = app.window_size(size);
+    }
+    app.subscription(|_state: &Textured| {
+        iced::Subscription::batch([
+            iced::keyboard::listen().map(Message::KeyboardEvent),
+            iced::event::listen().map(Message::Event),
+            time::every(milliseconds(16)).map(|_| Message::Tick),
+        ])
+    })
+    .theme(Theme::KanagawaDragon)
+    .run()
 }
 
 impl Textured {

@@ -100,11 +100,16 @@ world-wgpu/
 ## Development
 
 ```bash
-make build    # cargo build --workspace
-make check    # cargo clippy --workspace --all-targets
-make release  # cargo build --workspace --release
-make clean    # cargo clean
+make build          # cargo build --workspace
+make check          # cargo clippy --workspace --all-targets
+make release        # cargo build --workspace --release
+make screenshots    # regenerate the README screenshots into docs/screenshots/
+make clean          # cargo clean
 ```
+
+Screenshots are captured in-app: each example renders for a short settle
+period, grabs its framebuffer and exits. Any binary can also be run manually
+with `cargo run -p <example> -- --screenshot=out.png`.
 
 ## Documentation
 

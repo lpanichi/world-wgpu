@@ -29,12 +29,14 @@ use nalgebra::Point3;
 enum Message {
     Tick,
     Event(iced::event::Event),
+    Shot(gui::screenshot::ShotMessage),
 }
 
 struct FrameValidationSimulation {
     program: ProgramSimulation,
     validation_info: String,
     control: CameraControl,
+    shot: gui::screenshot::AutoShot,
 }
 
 impl FrameValidationSimulation {
@@ -157,6 +159,7 @@ impl FrameValidationSimulation {
             program,
             validation_info,
             control: CameraControl::default(),
+            shot: gui::screenshot::AutoShot::from_env(),
         }
     }
 }
@@ -180,11 +183,14 @@ impl iced::widget::shader::Program<Message> for FrameValidationSimulation {
     }
 }
 
-fn update(sim: &mut FrameValidationSimulation, message: Message) {
+fn update(sim: &mut FrameValidationSimulation, message: Message) -> iced::Task<Message> {
     match message {
         Message::Tick => {
             if !sim.program.paused {
                 sim.program.tick();
+            }
+            if let Some(task) = sim.shot.on_frame() {
+                return task.map(Message::Shot);
             }
         }
         Message::Event(event) => {
@@ -203,7 +209,13 @@ fn update(sim: &mut FrameValidationSimulation, message: Message) {
                 };
             }
         }
+        Message::Shot(msg) => {
+            if let Some(task) = sim.shot.handle(msg) {
+                return task.map(Message::Shot);
+            }
+        }
     }
+    iced::Task::none()
 }
 
 fn view(sim: &FrameValidationSimulation) -> Element<'_, Message> {
@@ -224,9 +236,12 @@ fn view(sim: &FrameValidationSimulation) -> Element<'_, Message> {
 fn main() -> iced::Result {
     env_logger::init();
 
-    iced::application(FrameValidationSimulation::new, update, view)
-        .subscription(|_state: &FrameValidationSimulation| {
-            subscription(|_| Message::Tick, Message::Event)
-        })
-        .run()
+    let mut app = iced::application(FrameValidationSimulation::new, update, view);
+    if let Some(size) = gui::screenshot::window_size() {
+        app = app.window_size(size);
+    }
+    app.subscription(|_state: &FrameValidationSimulation| {
+        subscription(|_| Message::Tick, Message::Event)
+    })
+    .run()
 }

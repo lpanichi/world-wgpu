@@ -2,7 +2,10 @@ SIM_EXAMPLES := vernal_equinox summer_solstice autumnal_equinox \
                 winter_solstice moon_phases earth_texture orbit_elements \
                 frame_validation shapes
 
-.PHONY: all simulation build release check run clean $(SIM_EXAMPLES)
+SCREENSHOT_DIR := docs/screenshots
+SCREENSHOTS := $(addprefix $(SCREENSHOT_DIR)/,$(addsuffix .png,$(SIM_EXAMPLES) simulation))
+
+.PHONY: all simulation build release check run clean screenshots $(SIM_EXAMPLES)
 
 # Default target: run the main simulation example
 simulation:
@@ -26,3 +29,11 @@ $(SIM_EXAMPLES):
 
 clean:
 	cargo clean
+
+# Regenerate the README screenshots on demand. Each example renders for a short
+# settle period, captures its framebuffer to docs/screenshots/<name>.png and
+# exits. Use `make -B screenshots` to force a full regeneration.
+screenshots: $(SCREENSHOTS)
+
+$(SCREENSHOT_DIR)/%.png: examples/%/src/main.rs examples/%/Cargo.toml gui/src/screenshot.rs
+	cargo run -q -p $(notdir $*) -- --screenshot=$@
