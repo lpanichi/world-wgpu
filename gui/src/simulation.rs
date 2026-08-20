@@ -230,6 +230,8 @@ impl Simulation {
         let satellite_radius = match self.satellite_mode {
             SatelliteRenderMode::Dot => dot_radius,
             SatelliteRenderMode::Cube => dot_radius * 0.25,
+            // Model envelope spans roughly [-0.4, 0.4] units in X.
+            SatelliteRenderMode::Model => dot_radius * 0.45,
         };
 
         for (orbit_index, orbit) in self.system.orbits.iter().enumerate() {

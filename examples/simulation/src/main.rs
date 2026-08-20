@@ -731,7 +731,8 @@ impl Textured {
                 }
                 Key::Named(iced::keyboard::key::Named::Space) => {
                     self.program.satellite_mode = match self.program.satellite_mode {
-                        SatelliteRenderMode::Cube => SatelliteRenderMode::Dot,
+                        SatelliteRenderMode::Cube => SatelliteRenderMode::Model,
+                        SatelliteRenderMode::Model => SatelliteRenderMode::Dot,
                         SatelliteRenderMode::Dot => SatelliteRenderMode::Cube,
                     };
                 }
@@ -1236,7 +1237,7 @@ impl Default for Textured {
             program: Simulation {
                 system,
                 camera,
-                satellite_mode: SatelliteRenderMode::Dot,
+                satellite_mode: SatelliteRenderMode::Model,
                 frame_mode: FrameMode::Eci,
                 ecef_reference_earth_angle: 0.0,
                 paused: false,

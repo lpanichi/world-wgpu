@@ -6,7 +6,7 @@ use crate::{
     model::{ground_station::GroundStation, orbit::Orbit, shapes::Shapes},
 };
 use geometry::tesselation::build_sphere;
-use nalgebra::{Matrix4, Rotation3, Unit, Vector3};
+use nalgebra::{Matrix3, Matrix4, Rotation3, Unit, Vector3};
 use std::sync::Arc;
 
 /// Earth radius in kilometers (WGS84 equatorial, single source of truth).
@@ -145,8 +145,22 @@ impl System {
         self.satellite_positions(elapsed)
             .into_iter()
             .map(|pos| {
-                let translation = Matrix4::new_translation(&Vector3::new(pos[0], pos[1], pos[2]));
-                translation * scale
+                let position = Vector3::new(pos[0], pos[1], pos[2]);
+                let translation = Matrix4::new_translation(&position);
+                // Point the model's -Y (nadir) axis toward Earth center so the
+                // earth-observation instrument faces the planet.
+                let nadir = -position.normalize();
+                let reference = Vector3::z_axis().into_inner();
+                let reference = if nadir.dot(&reference).abs() > 0.99 {
+                    Vector3::y_axis().into_inner()
+                } else {
+                    reference
+                };
+                let u = nadir.cross(&reference).normalize();
+                let v = u.cross(&-nadir).normalize();
+                let rotation =
+                    Rotation3::from_matrix_unchecked(Matrix3::from_columns(&[u, -nadir, v]));
+                translation * rotation.to_homogeneous() * scale
             })
             .collect()
     }

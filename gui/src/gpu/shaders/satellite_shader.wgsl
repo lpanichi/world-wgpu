@@ -57,6 +57,42 @@ fn vs_main_dot(input: VertexInput, @builtin(instance_index) inst: u32) -> Vertex
     return out;
 }
 
+struct ModelInput {
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) color: vec3<f32>,
+}
+
+struct ModelOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) world_normal: vec3<f32>,
+    @location(1) color: vec3<f32>,
+};
+
+@vertex
+fn vs_main_model(input: ModelInput, @builtin(instance_index) inst: u32) -> ModelOutput {
+    var out: ModelOutput;
+    let model = uniforms.models[inst];
+    let world_position = model * vec4<f32>(input.position, 1.0);
+    let world_normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
+
+    out.world_normal = normalize(world_normal);
+    out.color = input.color;
+    out.position = uniforms.view_proj * world_position;
+    return out;
+}
+
+@fragment
+fn fs_main_model(in: ModelOutput) -> @location(0) vec4<f32> {
+    let normal = normalize(in.world_normal);
+    let sun = normalize(uniforms.sun_direction.xyz);
+    let diffuse = max(dot(normal, sun), 0.0);
+    let lit_strength = 0.2 + 0.8 * diffuse;
+
+    let color = in.color * lit_strength;
+    return vec4<f32>(color, 1.0);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let normal = normalize(in.world_normal);

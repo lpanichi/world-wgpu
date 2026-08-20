@@ -1,7 +1,9 @@
 use crate::gpu::pipelines::planet::camera::Camera;
 use crate::gpu::pipelines::planet::consts::{DEPTH_FORMAT, MSAA_SAMPLE_COUNT};
-use crate::gpu::pipelines::planet::instance_mesh::{cube_vertices, dot_vertices};
-use crate::gpu::pipelines::planet::vertex::PositionVertex;
+use crate::gpu::pipelines::planet::instance_mesh::{
+    cube_vertices, dot_vertices, eo_satellite_vertices,
+};
+use crate::gpu::pipelines::planet::vertex::{ModelVertex, PositionVertex};
 use crate::model::system::{EARTH_RADIUS_KM, System};
 use iced::wgpu::{
     self, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, Buffer,
@@ -48,16 +50,20 @@ impl Default for SatelliteUniforms {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SatelliteRenderMode {
     Cube,
+    Model,
     Dot,
 }
 
 pub struct SatellitePipeline {
     mode: SatelliteRenderMode,
     cube_pipeline: RenderPipeline,
+    model_pipeline: RenderPipeline,
     dot_pipeline: RenderPipeline,
     cube_buffer: Buffer,
+    model_buffer: Buffer,
     dot_buffer: Buffer,
     cube_vertex_count: u32,
+    model_vertex_count: u32,
     dot_vertex_count: u32,
     satellite_instances: u32,
     satellite_uniforms: Buffer,
@@ -67,6 +73,7 @@ pub struct SatellitePipeline {
 impl SatellitePipeline {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: TextureFormat) -> Self {
         let cube_vertices = cube_vertices();
+        let model_vertices = eo_satellite_vertices();
         let dot_vertices = dot_vertices();
 
         let cube_buffer = device.create_buffer(&BufferDescriptor {
@@ -78,6 +85,16 @@ impl SatellitePipeline {
         queue.write_buffer(&cube_buffer, 0, bytemuck::cast_slice(&cube_vertices));
 
         let cube_vertex_count = cube_vertices.len() as u32;
+
+        let model_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Satellite Model Buffer"),
+            size: (std::mem::size_of::<ModelVertex>() * model_vertices.len()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&model_buffer, 0, bytemuck::cast_slice(&model_vertices));
+
+        let model_vertex_count = model_vertices.len() as u32;
 
         // Dot mode renders camera-facing billboards in `vs_main_dot`.
         // A unit quad keeps the sizing logic in the shader straightforward.
@@ -177,6 +194,50 @@ impl SatellitePipeline {
             cache: None,
         });
 
+        let model_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("Satellite Model Pipeline"),
+            layout: Some(&satellite_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &satellite_shader,
+                entry_point: Some("vs_main_model"),
+                compilation_options: Default::default(),
+                buffers: &[ModelVertex::desc()],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: MSAA_SAMPLE_COUNT,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &satellite_shader,
+                entry_point: Some("fs_main_model"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+            cache: None,
+        });
+
         let dot_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("Satellite Dot Pipeline"),
             layout: Some(&satellite_pipeline_layout),
@@ -224,10 +285,13 @@ impl SatellitePipeline {
         Self {
             mode: SatelliteRenderMode::Cube,
             cube_pipeline,
+            model_pipeline,
             dot_pipeline,
             cube_buffer,
+            model_buffer,
             dot_buffer,
             cube_vertex_count,
+            model_vertex_count,
             dot_vertex_count,
             satellite_instances: 0,
             satellite_uniforms: satellite_uniform_buffer,
@@ -281,6 +345,11 @@ impl SatellitePipeline {
                 &self.cube_pipeline,
                 &self.cube_buffer,
                 self.cube_vertex_count,
+            ),
+            SatelliteRenderMode::Model => (
+                &self.model_pipeline,
+                &self.model_buffer,
+                self.model_vertex_count,
             ),
             SatelliteRenderMode::Dot => {
                 (&self.dot_pipeline, &self.dot_buffer, self.dot_vertex_count)
