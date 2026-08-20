@@ -1,10 +1,15 @@
-use gui::gpu::pipelines::planet::{camera::Camera, shapes::ShapesPipeline, uniforms::Uniforms};
+use gui::gpu::pipelines::planet::{
+    camera::Camera,
+    shapes::ShapesPipeline,
+    text::TextPipeline,
+    uniforms::Uniforms,
+};
 use gui::model::shapes::Shapes;
-use gui::model::text_vertices::{TextMesh, build_axis_label, build_text};
+use gui::text::{self, TEXT_VERTEX_FLOATS};
 use gui::viewer::{ArrowAction, CameraControl, subscription};
 use iced::mouse;
 use iced::wgpu;
-use iced::widget::{column, container, shader, text};
+use iced::widget::{column, container, shader, text as ui_text};
 use iced::{Element, Length};
 use nalgebra::{Point3, Vector3};
 use std::sync::{Arc, Mutex};
@@ -18,25 +23,28 @@ enum Message {
 struct ShapesSimulation {
     camera: Camera,
     control: CameraControl,
-    text_vertices: Vec<gui::gpu::pipelines::planet::vertex::ColoredVertex>,
-    text_ranges: Vec<(u32, u32)>,
+    shape_vertices: Vec<[f32; 7]>,
+    shape_ranges: Vec<(u32, u32)>,
+    text_quads: Vec<[f32; TEXT_VERTEX_FLOATS]>,
     help_text: String,
 }
 
 impl ShapesSimulation {
     fn new() -> Self {
-        let text_mesh = create_text_mesh();
-        let text_vertices: Vec<gui::gpu::pipelines::planet::vertex::ColoredVertex> = text_mesh
-            .vertices
-            .iter()
-            .map(|vert| gui::gpu::pipelines::planet::vertex::ColoredVertex {
-                position: [vert[0], vert[1], vert[2]],
-                color: [vert[3], vert[4], vert[5]],
-                rotate_with_earth: vert[6],
-            })
-            .collect();
+        let mut shapes = Shapes::new();
+        shapes.add_frame(
+            gui::model::FrameMode::Eci,
+            [-6.0, 0.0, 0.0],
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            2.0,
+            "Axes",
+        );
+        shapes.add_orbital_elements(3.5, 35.0, 20.0, 55.0);
 
-        let text_ranges = text_mesh.ranges;
+        let (shape_vertices, shape_ranges, text_quads) = shapes.get_all();
+
+        let mut text_quads = text_quads;
+        text_quads.extend(create_sample_text_quads());
 
         let camera_eye = Point3::new(-6.0, -12.0, 4.0);
         let camera_target = Point3::new(-6.0, 0.0, 0.0);
@@ -54,8 +62,9 @@ impl ShapesSimulation {
         ShapesSimulation {
             camera,
             control,
-            text_vertices,
-            text_ranges,
+            shape_vertices,
+            shape_ranges,
+            text_quads,
             help_text: "Shapes: Pan arrows | Rotate right-drag | Zoom +/-".to_string(),
         }
     }
@@ -63,8 +72,9 @@ impl ShapesSimulation {
 
 #[derive(Debug)]
 struct TextVerticesPrimitive {
-    vertices: Vec<gui::gpu::pipelines::planet::vertex::ColoredVertex>,
-    ranges: Vec<(u32, u32)>,
+    shape_vertices: Vec<[f32; 7]>,
+    shape_ranges: Vec<(u32, u32)>,
+    text_quads: Vec<[f32; TEXT_VERTEX_FLOATS]>,
     camera: Camera,
     uniforms_state: Arc<Mutex<Option<UniformsState>>>,
 }
@@ -77,6 +87,7 @@ struct UniformsState {
 
 struct ShapesPipelineRenderer {
     pipeline: ShapesPipeline,
+    text_pipeline: TextPipeline,
     uniform_bind_group_layout: wgpu::BindGroupLayout,
     depth_texture: Option<wgpu::Texture>,
 }
@@ -108,7 +119,7 @@ impl ShapesPipelineRenderer {
 }
 
 impl shader::Pipeline for ShapesPipelineRenderer {
-    fn new(device: &wgpu::Device, _queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
+    fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Text Vertices Uniforms bind group layout"),
@@ -126,6 +137,7 @@ impl shader::Pipeline for ShapesPipelineRenderer {
 
         ShapesPipelineRenderer {
             pipeline: ShapesPipeline::new(device, format, &uniform_bind_group_layout, 1),
+            text_pipeline: TextPipeline::new(device, queue, format, 1),
             uniform_bind_group_layout,
             depth_texture: None,
         }
@@ -143,8 +155,9 @@ impl shader::Program<Message> for ShapesSimulation {
         _bounds: iced::Rectangle,
     ) -> Self::Primitive {
         TextVerticesPrimitive {
-            vertices: self.text_vertices.clone(),
-            ranges: self.text_ranges.clone(),
+            shape_vertices: self.shape_vertices.clone(),
+            shape_ranges: self.shape_ranges.clone(),
+            text_quads: self.text_quads.clone(),
             camera: self.camera.clone(),
             uniforms_state: Arc::new(Mutex::new(None)),
         }
@@ -162,7 +175,7 @@ fn update(sim: &mut ShapesSimulation, message: Message) {
 
 fn view(sim: &ShapesSimulation) -> Element<'_, Message> {
     let scene = shader(sim).width(Length::Fill).height(Length::Fill);
-    let info = text(&sim.help_text).size(16);
+    let info = ui_text(&sim.help_text).size(16);
 
     container(column![info, scene].spacing(6))
         .width(Length::Fill)
@@ -208,9 +221,21 @@ impl shader::Primitive for TextVerticesPrimitive {
             *state = Some(UniformsState { buffer, bind_group });
         }
 
+        let colored: Vec<gui::gpu::pipelines::planet::vertex::ColoredVertex> = self
+            .shape_vertices
+            .iter()
+            .map(|v| gui::gpu::pipelines::planet::vertex::ColoredVertex {
+                position: [v[0], v[1], v[2]],
+                color: [v[3], v[4], v[5]],
+                rotate_with_earth: v[6],
+            })
+            .collect();
         pipeline
             .pipeline
-            .set_data(device, queue, &self.vertices, &self.ranges);
+            .set_data(device, queue, &colored, &self.shape_ranges);
+        pipeline
+            .text_pipeline
+            .prepare(device, queue, &self.camera, &self.text_quads, 0.0);
         pipeline.prepare_depth_texture(
             device,
             viewport.physical_width(),
@@ -284,86 +309,62 @@ impl shader::Primitive for TextVerticesPrimitive {
             pipeline
                 .pipeline
                 .render(&mut render_pass, &state.bind_group);
+            pipeline.text_pipeline.render(&mut render_pass);
         }
     }
 }
 
-fn create_text_mesh() -> TextMesh {
-    let mut mesh = TextMesh::new();
+fn create_sample_text_quads() -> Vec<[f32; TEXT_VERTEX_FLOATS]> {
+    let mut quads = Vec::new();
 
-    mesh.append(&build_text(
+    quads.extend(text::build_text_quads(
         Vector3::new(-6.0, 0.0, 1.5),
-        Vector3::new(0.0, 1.0, 0.0),
         0.35,
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
         [0.95, 0.55, 0.30],
     ));
 
-    mesh.append(&build_text(
+    quads.extend(text::build_text_quads(
         Vector3::new(-6.0, 0.0, 0.0),
-        Vector3::new(0.0, 1.0, 0.0),
         0.35,
         "abcdefghijklmnopqrstuvwxyz",
         [0.30, 0.85, 0.45],
     ));
 
-    mesh.append(&build_text(
+    quads.extend(text::build_text_quads(
         Vector3::new(-6.0, 0.0, -1.5),
-        Vector3::new(0.0, 1.0, 0.0),
         0.35,
         "0123456789.,:()+-=/",
         [0.45, 0.60, 0.95],
     ));
 
-    mesh.append(&build_text(
+    quads.extend(text::build_text_quads(
         Vector3::new(-6.0, 0.0, -3.0),
-        Vector3::new(0.0, 1.0, 0.0),
         0.26,
         "The quick brown fox jumps over the lazy dog",
         [0.95, 0.95, 0.40],
     ));
 
-    mesh.append(&build_axis_label(
+    quads.extend(text::build_axis_label_quads(
         Vector3::new(3.0, 0.0, 0.0),
         0,
         0.35,
         [1.0, 0.3, 0.3],
     ));
-    mesh.append(&build_axis_label(
+    quads.extend(text::build_axis_label_quads(
         Vector3::new(0.0, 3.0, 0.0),
         1,
         0.35,
         [0.3, 1.0, 0.3],
     ));
-    mesh.append(&build_axis_label(
+    quads.extend(text::build_axis_label_quads(
         Vector3::new(0.0, 0.0, 3.0),
         2,
         0.35,
         [0.3, 0.5, 1.0],
     ));
 
-    let mut shapes = Shapes::new();
-    shapes.add_frame(
-        gui::model::FrameMode::Eci,
-        [-6.0, 0.0, 0.0],
-        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
-        2.0,
-        "Axes",
-    );
-    shapes.add_orbital_elements(3.5, 35.0, 20.0, 55.0);
-
-    append_shapes_to_mesh(&mut mesh, &shapes);
-
-    mesh
-}
-
-fn append_shapes_to_mesh(mesh: &mut TextMesh, shapes: &Shapes) {
-    let (shape_vertices, shape_ranges) = shapes.get_shapes();
-    let offset = mesh.vertices.len() as u32;
-    mesh.vertices.extend(shape_vertices);
-    for (start, len) in shape_ranges {
-        mesh.ranges.push((start + offset, len));
-    }
+    quads
 }
 
 fn main() -> iced::Result {

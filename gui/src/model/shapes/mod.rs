@@ -1,4 +1,5 @@
 use super::text_vertices;
+use crate::text::TEXT_VERTEX_FLOATS;
 pub mod frame;
 pub mod line;
 pub mod orbital_elements;
@@ -50,25 +51,46 @@ impl Shapes {
     /// Generate all line-strip segments for rendering.
     /// Returns (vertices, ranges) where each vertex has position, color, and a rotate-with-earth flag.
     pub fn get_shapes(&self) -> (Vec<[f32; 7]>, Vec<(u32, u32)>) {
+        let (verts, ranges, _) = self.generate_shapes();
+        (verts, ranges)
+    }
+
+    /// Generate all glyph quads (camera-facing / surface-attached text).
+    pub fn get_text_quads(&self) -> Vec<[f32; TEXT_VERTEX_FLOATS]> {
+        let (_, _, text) = self.generate_shapes();
+        text
+    }
+
+    /// Generate everything in one pass: line geometry + glyph quads.
+    #[allow(clippy::type_complexity)]
+    pub fn get_all(
+        &self,
+    ) -> (
+        Vec<[f32; 7]>,
+        Vec<(u32, u32)>,
+        Vec<[f32; TEXT_VERTEX_FLOATS]>,
+    ) {
         self.generate_shapes()
     }
 
-    fn generate_shapes(&self) -> (Vec<[f32; 7]>, Vec<(u32, u32)>) {
+    #[allow(clippy::type_complexity)]
+    fn generate_shapes(&self) -> (Vec<[f32; 7]>, Vec<(u32, u32)>, Vec<[f32; TEXT_VERTEX_FLOATS]>) {
         let mut verts: Vec<[f32; 7]> = Vec::new();
         let mut ranges = Vec::new();
+        let mut text_quads: Vec<[f32; TEXT_VERTEX_FLOATS]> = Vec::new();
 
         // Lines: each is a 2-point line strip
         for line in &self.lines {
-            line.append_to_mesh(&mut verts, &mut ranges);
+            line.append_to_mesh(&mut verts, &mut ranges, &mut text_quads);
         }
 
         // Points: rendered as small cross markers.
         for point in &self.points {
-            point.append_to_mesh(&mut verts, &mut ranges);
+            point.append_to_mesh(&mut verts, &mut ranges, &mut text_quads);
         }
 
         for frame in &self.frames {
-            frame.append_to_mesh(&mut verts, &mut ranges);
+            frame.append_to_mesh(&mut verts, &mut ranges, &mut text_quads);
         }
 
         if let Some(axis_len) = self.show_eci_frame {
@@ -79,6 +101,7 @@ impl Shapes {
                 axis_len,
                 &mut verts,
                 &mut ranges,
+                &mut text_quads,
             );
         }
 
@@ -90,15 +113,16 @@ impl Shapes {
                 axis_len,
                 &mut verts,
                 &mut ranges,
+                &mut text_quads,
             );
         }
 
         // Orbital elements visualizations
         for oe in &self.orbital_elements {
-            oe.append_to_mesh(&mut verts, &mut ranges);
+            oe.append_to_mesh(&mut verts, &mut ranges, &mut text_quads);
         }
 
-        (verts, ranges)
+        (verts, ranges, text_quads)
     }
 }
 

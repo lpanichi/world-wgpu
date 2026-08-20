@@ -21,6 +21,7 @@ mod tests {
             "star_catalog_shader.wgsl",
             "station_shader.wgsl",
             "sun_shader.wgsl",
+            "text_shader.wgsl",
         ];
         for name in shaders {
             let path = format!("{}/src/gpu/shaders/{name}", env!("CARGO_MANIFEST_DIR"));

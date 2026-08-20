@@ -1,5 +1,6 @@
 use super::Shapes;
-use crate::model::{FrameMode, text_vertices};
+use crate::model::FrameMode;
+use crate::text;
 use nalgebra::Vector3;
 
 /// A 3-axis reference frame to visualize.
@@ -36,7 +37,12 @@ impl Shapes {
 impl Frame {
     const FRAME_COLORS: [[f32; 3]; 3] = [super::COLOR_RED, super::COLOR_GREEN, super::COLOR_BLUE];
 
-    pub fn append_to_mesh(&self, verts: &mut Vec<[f32; 7]>, ranges: &mut Vec<(u32, u32)>) {
+    pub fn append_to_mesh(
+        &self,
+        verts: &mut Vec<[f32; 7]>,
+        ranges: &mut Vec<(u32, u32)>,
+        text_quads: &mut Vec<[f32; crate::text::TEXT_VERTEX_FLOATS]>,
+    ) {
         Frame::append_frame(
             self.frame_mode,
             self.origin,
@@ -44,6 +50,7 @@ impl Frame {
             self.axis_length,
             verts,
             ranges,
+            text_quads,
         );
     }
 
@@ -54,6 +61,7 @@ impl Frame {
         axis_length: f32,
         verts: &mut Vec<[f32; 7]>,
         ranges: &mut Vec<(u32, u32)>,
+        text_quads: &mut Vec<[f32; crate::text::TEXT_VERTEX_FLOATS]>,
     ) {
         let rotate_flag = if frame_mode == FrameMode::Ecef {
             1.0
@@ -72,8 +80,21 @@ impl Frame {
             verts.push(super::colored_vert(tip.into(), color, rotate_flag));
             ranges.push((start, 2));
 
-            let tm = text_vertices::build_axis_label(tip, i, axis_length * 0.06, color);
-            super::merge_text_mesh(verts, ranges, &tm, rotate_flag);
+            let size = axis_length * 0.06;
+            match frame_mode {
+                FrameMode::Ecef => {
+                    text_quads.extend(text::build_axis_label_quads_on_frame(
+                        tip,
+                        i,
+                        size,
+                        dir,
+                        color,
+                    ));
+                }
+                FrameMode::Eci => {
+                    text_quads.extend(text::build_axis_label_quads(tip, i, size, color));
+                }
+            }
         }
     }
 }

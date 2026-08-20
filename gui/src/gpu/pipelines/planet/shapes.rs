@@ -1,11 +1,9 @@
-use crate::{
-    gpu::pipelines::planet::{
-        buffer::write_or_grow,
-        consts::DEPTH_FORMAT,
-        vertex::ColoredVertex,
-    },
-    model::system::System,
+use crate::gpu::pipelines::planet::{
+    buffer::write_or_grow,
+    consts::DEPTH_FORMAT,
+    vertex::ColoredVertex,
 };
+use crate::model::system::System;
 
 pub const ORBIT_SAMPLES: usize = 128;
 pub const ORBIT_COLOR: [f32; 3] = [1.0, 0.7, 0.2];
@@ -98,17 +96,16 @@ impl ShapesPipeline {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        system: &System,
+        colored_verts: &[[f32; 7]],
+        colored_ranges: &[(u32, u32)],
     ) {
-        let (colored_verts, colored_ranges) = system.colored_shape_points();
-
         Self::set_data_into(
             &mut self.shapes_buffer,
             &mut self.shapes_ranges,
             device,
             queue,
-            bytemuck::cast_slice::<[f32; 7], ColoredVertex>(&colored_verts),
-            &colored_ranges,
+            bytemuck::cast_slice::<[f32; 7], ColoredVertex>(colored_verts),
+            colored_ranges,
         );
     }
 

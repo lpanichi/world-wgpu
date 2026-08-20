@@ -1294,8 +1294,10 @@ fn main() -> iced::Result {
 
 impl Textured {
     fn boot() -> (Self, iced::Task<Message>) {
+        eprintln!("DBG boot start");
         let quality = parse_texture_quality();
         debug!("texture quality: {:?}", quality);
+        eprintln!("DBG boot loading assets");
         (
             Self::default(),
             iced::Task::perform(

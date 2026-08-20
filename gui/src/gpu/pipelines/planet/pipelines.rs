@@ -20,6 +20,7 @@ use crate::gpu::pipelines::planet::{
     star_catalog::StarCatalogPipeline,
     station::StationPipeline,
     sun::SunPipeline,
+    text::TextPipeline,
     uniforms::Uniforms,
     vertex::ColoredVertex,
 };
@@ -38,6 +39,7 @@ pub struct Pipelines {
     star_catalog: StarCatalogPipeline,
     milky_way: MilkyWayPipeline,
     shapes: ShapesPipeline,
+    text: TextPipeline,
     fov_fill_buffer: Option<Buffer>,
     fov_fill_vertex_count: u32,
     satellite: SatellitePipeline,
@@ -103,6 +105,7 @@ impl Pipelines {
         let planet = PlanetPipeline::new(device, queue, HDR_FORMAT, &uniform_bind_group_layout);
 
         let shapes = ShapesPipeline::new(device, HDR_FORMAT, &uniform_bind_group_layout, MSAA_SAMPLE_COUNT);
+        let text = TextPipeline::new(device, queue, HDR_FORMAT, MSAA_SAMPLE_COUNT);
         let star_catalog = StarCatalogPipeline::new(device, queue, HDR_FORMAT);
         let milky_way = MilkyWayPipeline::new(device, queue, HDR_FORMAT);
 
@@ -122,6 +125,7 @@ impl Pipelines {
             star_catalog,
             milky_way,
             shapes,
+            text,
             fov_fill_buffer: None,
             fov_fill_vertex_count: 0,
             satellite,
@@ -234,8 +238,13 @@ show_clouds: bool,
         self.shapes
             .set_orbit_feature_data(device, queue, system, elapsed);
 
-        // Colored shapes (frames, orbital elements, labels, markers)
-        self.shapes.set_colored_shape_data(device, queue, system);
+        // Colored shapes (frames, orbital elements, markers) + text glyph quads,
+        // generated in a single pass to avoid rebuilding the scene twice.
+        let (shape_verts, shape_ranges, text_quads) = system.shape_points();
+        self.shapes
+            .set_colored_shape_data(device, queue, &shape_verts, &shape_ranges);
+        self.text
+            .prepare(device, queue, camera, &text_quads, earth_rotation_angle);
 
         self.star_catalog
             .prepare(queue, camera, width as f32, height as f32);
@@ -401,9 +410,13 @@ show_clouds: bool,
             self.shapes
                 .render(&mut render_pass, &self.uniforms_bind_group);
 
-            // Colored shapes (frames, orbital elements, labels)
+            // Colored shapes (frames, orbital elements, markers)
             self.shapes
                 .render_shapes(&mut render_pass, &self.uniforms_bind_group);
+
+            // Text labels (camera-facing space glyphs + surface-attached earth
+            // glyphs). Drawn after shapes so labels overlay the lines.
+            self.text.render(&mut render_pass);
 
             // Clouds rendered after planet, before other objects
             if self.show_clouds {

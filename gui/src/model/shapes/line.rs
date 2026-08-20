@@ -1,5 +1,6 @@
-use super::{COLOR_ORANGE, Shapes, colored_vert, merge_text_mesh, text_vertices};
+use super::{COLOR_ORANGE, Shapes, colored_vert};
 use crate::model::{FrameMode, system::EARTH_RADIUS_KM};
+use crate::text;
 use nalgebra::Vector3;
 
 /// A single colored line segment in world coordinates.
@@ -122,7 +123,12 @@ impl Shapes {
 }
 
 impl Line {
-    pub fn append_to_mesh(&self, verts: &mut Vec<[f32; 7]>, ranges: &mut Vec<(u32, u32)>) {
+    pub fn append_to_mesh(
+        &self,
+        verts: &mut Vec<[f32; 7]>,
+        ranges: &mut Vec<(u32, u32)>,
+        text_quads: &mut Vec<[f32; crate::text::TEXT_VERTEX_FLOATS]>,
+    ) {
         let start = verts.len() as u32;
         let rotate_flag = if self.frame_mode == FrameMode::Ecef {
             1.0
@@ -143,14 +149,27 @@ impl Line {
                 Vector3::new(0.0, 0.0, 1.0)
             };
 
-            let tm = text_vertices::build_text(
-                end_v + dir * (len * 0.08),
-                dir,
-                len * 0.025,
-                &self.label,
-                self.color,
-            );
-            merge_text_mesh(verts, ranges, &tm, rotate_flag);
+            let anchor = end_v + dir * (len * 0.08);
+            let char_size = len * 0.025;
+            match self.frame_mode {
+                FrameMode::Ecef => {
+                    text_quads.extend(text::build_text_quads_on_frame(
+                        anchor,
+                        dir,
+                        char_size,
+                        &self.label,
+                        self.color,
+                    ));
+                }
+                FrameMode::Eci => {
+                    text_quads.extend(text::build_text_quads(
+                        anchor,
+                        char_size,
+                        &self.label,
+                        self.color,
+                    ));
+                }
+            }
         }
     }
 }

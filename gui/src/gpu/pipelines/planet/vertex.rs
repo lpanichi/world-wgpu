@@ -38,6 +38,32 @@ impl ColoredVertex {
     }
 }
 
+/// A glyph quad vertex for the text pipeline.
+///
+/// Layout: `anchor(3) local(3) uv(2) color(3) rotate_with_earth(1)`.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TextVertex {
+    pub anchor: [f32; 3],
+    pub local: [f32; 3],
+    pub uv: [f32; 2],
+    pub color: [f32; 3],
+    pub rotate_with_earth: f32,
+}
+
+impl TextVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 5] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x3, 4 => Float32];
+
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<TextVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBS,
+        }
+    }
+}
+
 impl PositionVertex {
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {

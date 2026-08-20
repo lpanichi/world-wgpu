@@ -1,5 +1,6 @@
-use super::{COLOR_ORANGE, Shapes, colored_vert, merge_text_mesh, text_vertices};
+use super::{COLOR_ORANGE, Shapes, colored_vert};
 use crate::model::{FrameMode, system::EARTH_RADIUS_KM};
+use crate::text;
 use nalgebra::Vector3;
 
 /// A point marker in world coordinates.
@@ -69,7 +70,12 @@ impl Shapes {
 }
 
 impl Point {
-    pub fn append_to_mesh(&self, verts: &mut Vec<[f32; 7]>, ranges: &mut Vec<(u32, u32)>) {
+    pub fn append_to_mesh(
+        &self,
+        verts: &mut Vec<[f32; 7]>,
+        ranges: &mut Vec<(u32, u32)>,
+        text_quads: &mut Vec<[f32; crate::text::TEXT_VERTEX_FLOATS]>,
+    ) {
         let size = EARTH_RADIUS_KM * 0.02;
         let p = Vector3::new(self.position[0], self.position[1], self.position[2]);
         let rotate_flag = if self.frame_mode == FrameMode::Ecef {
@@ -111,14 +117,25 @@ impl Point {
         ranges.push((start, 2));
 
         if !self.label.is_empty() {
-            let tm = text_vertices::build_text(
-                p + dir * size * 2.5,
-                dir,
-                size * 0.4,
-                &self.label,
-                color,
-            );
-            merge_text_mesh(verts, ranges, &tm, rotate_flag);
+            let anchor = p + dir * size * 2.5;
+            let char_size = size * 0.4;
+            match self.frame_mode {
+                // Attached to the surface: bake the glyphs into the surface
+                // tangent frame so they rotate rigidly with the planet.
+                FrameMode::Ecef => {
+                    text_quads.extend(text::build_text_quads_on_frame(
+                        anchor,
+                        dir,
+                        char_size,
+                        &self.label,
+                        color,
+                    ));
+                }
+                // Floating in space: camera-facing glyphs.
+                FrameMode::Eci => {
+                    text_quads.extend(text::build_text_quads(anchor, char_size, &self.label, color));
+                }
+            }
         }
     }
 }

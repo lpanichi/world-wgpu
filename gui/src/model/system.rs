@@ -336,9 +336,16 @@ impl System {
         (points, ranges)
     }
 
-    /// Returns colored shape vertices `[x, y, z, r, g, b, rotate_with_earth]` and ranges.
-    pub fn colored_shape_points(&self) -> (Vec<[f32; 7]>, Vec<(u32, u32)>) {
-        self.shapes.get_shapes()
+    /// Returns line geometry (verts/ranges) plus glyph quads in one pass.
+    #[allow(clippy::type_complexity)]
+    pub fn shape_points(
+        &self,
+    ) -> (
+        Vec<[f32; 7]>,
+        Vec<(u32, u32)>,
+        Vec<[f32; crate::text::TEXT_VERTEX_FLOATS]>,
+    ) {
+        self.shapes.get_all()
     }
 
     /// Compute distance in km between a ground station (by index) and a satellite.

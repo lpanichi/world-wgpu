@@ -3,6 +3,7 @@ use super::{
     colored_vert, merge_text_mesh,
 };
 use crate::model::text_vertices;
+use crate::text;
 use nalgebra::{Rotation3, Vector3};
 
 /// Orbital elements visualization helper.
@@ -50,7 +51,12 @@ impl OrbitalElements {
 }
 
 impl OrbitalElements {
-    pub fn append_to_mesh(&self, verts: &mut Vec<[f32; 7]>, ranges: &mut Vec<(u32, u32)>) {
+    pub fn append_to_mesh(
+        &self,
+        verts: &mut Vec<[f32; 7]>,
+        ranges: &mut Vec<(u32, u32)>,
+        text_quads: &mut Vec<[f32; crate::text::TEXT_VERTEX_FLOATS]>,
+    ) {
         let raan = self.raan_deg.to_radians();
         let inc = self.inclination_deg.to_radians();
         let argp = self.arg_perigee_deg.to_radians();
@@ -81,14 +87,13 @@ impl OrbitalElements {
             merge_text_mesh(verts, ranges, &dm, 0.0);
 
             let asc_dir = asc_node_pos.normalize();
-            let tm = text_vertices::build_text(
+            let tm = text::build_text_quads(
                 asc_node_pos + asc_dir * a * 0.08,
-                asc_dir,
                 a * 0.025,
                 "AN",
                 self.color_markers,
             );
-            merge_text_mesh(verts, ranges, &tm, 0.0);
+            text_quads.extend(tm);
         }
 
         if self.show_orbital_plane {
@@ -143,28 +148,26 @@ impl OrbitalElements {
             let dm = text_vertices::build_diamond_marker(perigee_pos, a * 0.04, self.color_markers);
             merge_text_mesh(verts, ranges, &dm, 0.0);
             let pd = perigee_pos.normalize();
-            let tm = text_vertices::build_text(
+            let tm = text::build_text_quads(
                 perigee_pos + pd * a * 0.08,
-                pd,
                 a * 0.025,
                 "Pe",
                 self.color_markers,
             );
-            merge_text_mesh(verts, ranges, &tm, 0.0);
+            text_quads.extend(tm);
 
             let r_apogee = a * (1.0 + e);
             let apogee_pos = -perigee_dir * r_apogee;
             let dm = text_vertices::build_diamond_marker(apogee_pos, a * 0.04, self.color_markers);
             merge_text_mesh(verts, ranges, &dm, 0.0);
             let ad = apogee_pos.normalize();
-            let tm = text_vertices::build_text(
+            let tm = text::build_text_quads(
                 apogee_pos + ad * a * 0.08,
-                ad,
                 a * 0.025,
                 "Ap",
                 self.color_markers,
             );
-            merge_text_mesh(verts, ranges, &tm, 0.0);
+            text_quads.extend(tm);
         }
 
         if self.show_inclination_arc {
@@ -186,14 +189,13 @@ impl OrbitalElements {
             let mid_angle = inc * 0.5;
             let mid_dir = (ref_in_eq * mid_angle.cos() + perp * mid_angle.sin()).normalize();
             let mid_pt = mid_dir * arc_radius;
-            let tm = text_vertices::build_text(
+            let tm = text::build_text_quads(
                 mid_pt,
-                mid_dir,
                 a * 0.02,
                 &format!("{:.0}°", self.inclination_deg),
                 self.color_inclination_arc,
             );
-            merge_text_mesh(verts, ranges, &tm, 0.0);
+            text_quads.extend(tm);
         }
     }
 }
