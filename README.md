@@ -50,6 +50,14 @@ cargo build --workspace
 cargo run -p simulation
 ```
 
+Run with the high-resolution Earth texture (with mipmaps):
+
+```bash
+make simulation ARGS=--high-res
+# or equivalently
+cargo run -p simulation -- --high-res
+```
+
 ### Run all examples
 
 ```bash

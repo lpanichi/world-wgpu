@@ -7,9 +7,14 @@ SCREENSHOTS := $(addprefix $(SCREENSHOT_DIR)/,$(addsuffix .png,$(SIM_EXAMPLES) s
 
 .PHONY: all simulation build release check run clean screenshots $(SIM_EXAMPLES)
 
-# Default target: run the main simulation example
+# Default target: run the main simulation example.
+#
+# The simulation defaults to a low-resolution Earth texture. To run it with the
+# high-resolution texture (with mipmaps), pass the CLI flag after `--`:
+#
+#   make simulation ARGS=--high-res
 simulation:
-	cargo run -p simulation
+	cargo run -p simulation -- $(ARGS)
 
 all: release
 
