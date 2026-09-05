@@ -34,6 +34,9 @@ pub struct System {
     pub rect_surfaces: Vec<(f32, f32, f32, f32)>,
     /// Shapes (lines, points, frames, orbital elements) for validation overlays.
     pub shapes: Shapes,
+    /// Rendered satellite size relative to Earth radius (exaggerated; real
+    /// satellites would be sub-pixel). Defaults to [`Self::SATELLITE_SCALE_FACTOR`].
+    pub satellite_scale_factor: f32,
 }
 
 impl System {
@@ -105,7 +108,10 @@ impl System {
         &self.planet_triangles
     }
 
+    /// Orbit line strips, sampled around the current simulation time so the
+    /// drawn track follows the J2-drifted plane the satellites are actually on.
     pub fn orbit_line_points(&self, steps_per_orbit: usize) -> (Vec<[f32; 3]>, Vec<(u32, u32)>) {
+        let elapsed = self.elapsed_seconds();
         let mut points = Vec::new();
         let mut ranges = Vec::new();
         for orbit in &self.orbits {
@@ -113,7 +119,7 @@ impl System {
                 continue;
             }
             let start = points.len() as u32;
-            let mut sampled = orbit.generate_orbit_positions(steps_per_orbit);
+            let mut sampled = orbit.generate_orbit_positions_at(elapsed, steps_per_orbit);
             if !sampled.is_empty() {
                 // Close the loop by repeating first point at end of line strip.
                 sampled.push(sampled[0]);
@@ -141,7 +147,7 @@ impl System {
     pub const SATELLITE_SCALE_FACTOR: f32 = 0.005; // relative to Earth radius
 
     pub fn satellite_models(&self, elapsed: f32) -> Vec<Matrix4<f32>> {
-        let scale = Matrix4::new_scaling(EARTH_RADIUS_KM * Self::SATELLITE_SCALE_FACTOR);
+        let scale = Matrix4::new_scaling(EARTH_RADIUS_KM * self.satellite_scale_factor);
         self.satellite_positions(elapsed)
             .into_iter()
             .map(|pos| {
@@ -464,6 +470,7 @@ impl SimulationBuilder {
             precession_enabled: false,
             rect_surfaces: Vec::new(),
             shapes: Shapes::new(),
+            satellite_scale_factor: System::SATELLITE_SCALE_FACTOR,
         }
     }
 }

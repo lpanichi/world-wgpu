@@ -315,7 +315,7 @@ impl SatellitePipeline {
         uniforms.view_proj = camera.build_view_projection_matrix().into();
 
         uniforms.sun_direction = [sun_dir.x, sun_dir.y, sun_dir.z, 0.0];
-        uniforms.satellite_scale = EARTH_RADIUS_KM * System::SATELLITE_SCALE_FACTOR;
+        uniforms.satellite_scale = EARTH_RADIUS_KM * model.satellite_scale_factor;
 
         let camera_forward = (camera.target - camera.eye).normalize();
         let camera_right = camera_forward.cross(&camera.up.into_inner()).normalize();

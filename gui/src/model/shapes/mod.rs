@@ -2,13 +2,17 @@ use super::text_vertices;
 use crate::text::TEXT_VERTEX_FLOATS;
 pub mod frame;
 pub mod line;
+pub mod longitude;
 pub mod orbital_elements;
 pub mod point;
+pub mod sun_path;
 use crate::model::FrameMode;
 pub use frame::Frame;
 pub use line::Line;
+pub use longitude::LongitudeLine;
 pub use orbital_elements::OrbitalElements;
 pub use point::Point;
+pub use sun_path::SunPath;
 
 /// Default shape colors.
 pub const COLOR_ORANGE: [f32; 3] = [1.0, 0.7, 0.2];
@@ -27,6 +31,10 @@ pub struct Shapes {
     pub points: Vec<Point>,
     pub frames: Vec<Frame>,
     pub orbital_elements: Vec<OrbitalElements>,
+    /// Meridian (longitude) lines with local-time labels, fixed to the Earth.
+    pub longitude_lines: Vec<LongitudeLine>,
+    /// Sun's annual path ring (ecliptic) with season markers.
+    pub sun_paths: Vec<SunPath>,
     /// If set, draw an ECI frame with this axis length (fixed in inertial space).
     pub show_eci_frame: Option<f32>,
     /// If set, draw an ECEF frame with this axis length (rotates dynamically with Earth).
@@ -120,6 +128,16 @@ impl Shapes {
         // Orbital elements visualizations
         for oe in &self.orbital_elements {
             oe.append_to_mesh(&mut verts, &mut ranges, &mut text_quads);
+        }
+
+        // Longitude lines (meridians) with local-time labels.
+        for ll in &self.longitude_lines {
+            ll.append_to_mesh(&mut verts, &mut ranges, &mut text_quads);
+        }
+
+        // Sun's annual path ring (ecliptic) with season markers.
+        for sp in &self.sun_paths {
+            sp.append_to_mesh(&mut verts, &mut ranges, &mut text_quads);
         }
 
         (verts, ranges, text_quads)

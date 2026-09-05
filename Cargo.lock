@@ -1004,6 +1004,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edf234dd1594d6dd434a8fb8cada51ddbbc593e40e4a01556a0b31c62da2775b"
 
 [[package]]
+name = "earth_orbit"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "env_logger",
+ "gui",
+ "iced",
+ "nalgebra",
+]
+
+[[package]]
 name = "earth_texture"
 version = "0.1.0"
 dependencies = [
@@ -3911,6 +3922,18 @@ checksum = "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731"
 
 [[package]]
 name = "summer_solstice"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "env_logger",
+ "gui",
+ "iced",
+ "log",
+ "nalgebra",
+]
+
+[[package]]
+name = "sun_synchronous"
 version = "0.1.0"
 dependencies = [
  "chrono",

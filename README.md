@@ -74,6 +74,8 @@ This workspace ships several validation and demonstration examples. Each renders
 | [`earth_texture`](examples/earth_texture) | Validates Earth texture placement against known city coordinates |
 | [`moon_phases`](examples/moon_phases) | Validates Moon phase angles at a known full-moon date |
 | [`orbit_elements`](examples/orbit_elements) | Interactive Keplerian orbital-element sliders and visibility toggles |
+| [`sun_synchronous`](examples/sun_synchronous) | Interactive sun-synchronous orbit demo: J2 nodal precession vs the Sun, LTAN, local solar time |
+| [`earth_orbit`](examples/earth_orbit) | Teaches the seasons and Earth's annual revolution around the Sun: tilted Sun-path ring, equinoxes/solstices, day length & sun elevation by latitude |
 | [`shapes`](examples/shapes) | Renders geometric shapes, axis labels, and text meshes |
 | [`frame_validation`](examples/frame_validation) | Validates ECI / ECEF frame orientations and Earth rotation |
 | [`vernal_equinox`](examples/vernal_equinox) | Validates solar declination ≈ 0° at the March equinox |

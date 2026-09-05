@@ -226,7 +226,7 @@ impl Simulation {
         // x'=cθ·x+sθ·y, y'=-sθ·x+cθ·y — that is Rz(-θ). Negate here to match.
         let ecef_to_eci = Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_rotation_angle);
 
-        let dot_radius = EARTH_RADIUS_KM * System::SATELLITE_SCALE_FACTOR;
+        let dot_radius = EARTH_RADIUS_KM * self.system.satellite_scale_factor;
         let satellite_radius = match self.satellite_mode {
             SatelliteRenderMode::Dot => dot_radius,
             SatelliteRenderMode::Cube => dot_radius * 0.25,

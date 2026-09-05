@@ -1,6 +1,6 @@
 SIM_EXAMPLES := vernal_equinox summer_solstice autumnal_equinox \
                 winter_solstice moon_phases earth_texture orbit_elements \
-                frame_validation shapes
+                frame_validation shapes sun_synchronous earth_orbit
 
 SCREENSHOT_DIR := docs/screenshots
 SCREENSHOTS := $(addprefix $(SCREENSHOT_DIR)/,$(addsuffix .png,$(SIM_EXAMPLES) simulation))
