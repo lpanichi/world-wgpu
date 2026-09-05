@@ -15,7 +15,7 @@ use gui::viewer::{CameraControl, subscription};
 use iced::mouse;
 use iced::widget::{column, container, shader, text};
 use iced::{Element, Length};
-use nalgebra::Point3;
+use nalgebra::{Point3, Vector3};
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -41,8 +41,14 @@ impl SolsticeSimulation {
         let declination = Astral::solar_declination_deg(day);
         let sun_dir = Astral::sun_inertial_position(day, hour);
 
-        // Camera from above-side to see the tilt
-        let camera_eye = Point3::new(0.0, -25_000.0, 15_000.0);
+        // Camera looks from roughly the Sun direction, so the sunlit hemisphere
+        // faces the viewer and the pole tilted toward the Sun is visible in
+        // daylight. Nudged slightly off-axis so the Sun-direction line's label
+        // doesn't sit right on the camera's line of sight.
+        let sun_dir_vec =
+            Vector3::new(sun_dir[0] as f32, sun_dir[1] as f32, sun_dir[2] as f32).normalize();
+        let camera_eye =
+            Point3::from((sun_dir_vec + Vector3::new(0.15, -0.2, 0.05)).normalize() * 30_000.0);
 
         let mut core_sim = System::builder().build(solstice_time);
         core_sim.simulation_speed = 0;
@@ -57,7 +63,7 @@ impl SolsticeSimulation {
         core_sim.shapes.add_sun_line(
             gui::model::FrameMode::Eci,
             [sun_dir[0] as f32, sun_dir[1] as f32, sun_dir[2] as f32],
-            earth_radius * 3.0,
+            earth_radius * 1.6,
         );
 
         // Subsolar point on surface
@@ -73,9 +79,9 @@ impl SolsticeSimulation {
             "Subsolar radial",
         );
 
-        // Tropic of Capricorn line (≈23.44°N) — mark several points along it
+        // Tropic of Capricorn line (≈23.44°S) — mark several points along it
         for lon in (-180..=180).step_by(30) {
-            core_sim.shapes.add_surface_point(23.44, lon as f32, "");
+            core_sim.shapes.add_surface_point(-23.44, lon as f32, "");
         }
 
         // Arctic circle (≈66.56°N)
@@ -108,7 +114,7 @@ impl SolsticeSimulation {
         };
 
         let validation_info = format!(
-            "SUMMER SOLSTICE VALIDATION — Day {} ({}) | \
+            "WINTER SOLSTICE VALIDATION — Day {} ({}) | \
              Declination: {:.4}° (expect ≈-23.44°) | \
              Subsolar: ({:.2}°, {:.2}°) | \
              Sun ECI Z: {:.4} (positive = north tilt)",

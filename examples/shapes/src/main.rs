@@ -48,8 +48,8 @@ impl ShapesSimulation {
         let mut text_quads = text_quads;
         text_quads.extend(create_sample_text_quads());
 
-        let camera_eye = Point3::new(-6.0, -12.0, 4.0);
-        let camera_target = Point3::new(-6.0, 0.0, 0.0);
+        let camera_target = Point3::new(-1.3, 0.0, -0.6);
+        let camera_eye = camera_target + Vector3::new(0.0, -9.6, 2.9);
         let mut camera = Camera::new(camera_eye, camera_target, 1600.0, 900.0);
         camera.fovy = 50.0;
 

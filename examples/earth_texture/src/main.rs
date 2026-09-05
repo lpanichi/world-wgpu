@@ -21,7 +21,7 @@ use gui::viewer::{CameraControl, subscription};
 use iced::mouse;
 use iced::widget::{column, container, shader, text};
 use iced::{Element, Length};
-use nalgebra::{Point3, Vector3};
+use nalgebra::{Point3, Rotation3, Vector3};
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -85,9 +85,15 @@ impl EarthTextureSimulation {
             core_sim.shapes.add_surface_point(lat as f32, 0.0, "");
         }
 
-        // Camera looking at Gulf of Guinea
+        // Camera looking at Gulf of Guinea. The scene is rendered in the ECI
+        // frame, so the ECEF-derived direction must be rotated by Earth's
+        // current rotation angle to land on the right spot (matching the
+        // rotation the station/planet shaders apply to ECEF geometry).
         let gulf_pos = lat_lon_to_ecef(0.0, 0.0);
-        let gulf_dir = Vector3::new(gulf_pos[0], gulf_pos[1], gulf_pos[2]).normalize();
+        let gulf_dir_ecef = Vector3::new(gulf_pos[0], gulf_pos[1], gulf_pos[2]).normalize();
+        let earth_rotation_angle = core_sim.earth_rotation() as f32;
+        let ecef_to_eci = Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_rotation_angle);
+        let gulf_dir = ecef_to_eci * gulf_dir_ecef;
         let camera_eye = Point3::from(gulf_dir * 20_000.0);
 
         let mut camera = Camera::new(camera_eye, [0.0, 0.0, 0.0].into(), 1600.0, 900.0);

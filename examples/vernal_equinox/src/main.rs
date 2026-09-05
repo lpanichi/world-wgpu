@@ -9,7 +9,6 @@
 use chrono::{TimeZone, Utc};
 use gui::astro::Astral;
 use gui::gpu::pipelines::planet::{camera::Camera, satellite::SatelliteRenderMode};
-use gui::model::geo::lat_lon_to_ecef;
 use gui::model::system::System;
 use gui::model::FrameMode;
 use gui::simulation::Simulation as ProgramSimulation;
@@ -43,12 +42,16 @@ impl VernalEquinoxSimulation {
         let declination = Astral::solar_declination_deg(day);
         let sun_dir = Astral::sun_inertial_position(day, hour);
 
-        // Camera looks from the Sun direction
-        let subsolar_ecef = lat_lon_to_ecef(subsolar_lat as f32, subsolar_lon as f32);
-        let subsolar_direction =
-            Vector3::new(subsolar_ecef[0], subsolar_ecef[1], subsolar_ecef[2]).normalize();
+        // Camera looks from roughly the Sun direction (in the ECI frame the
+        // scene is rendered in, so the lit hemisphere always faces the
+        // camera). At the equinox the ECI/ECEF X axes point almost exactly at
+        // the Sun too, so the camera is offset further off-axis than usual to
+        // keep their axis labels from sitting right on the line of sight.
+        let sun_dir_vec =
+            Vector3::new(sun_dir[0] as f32, sun_dir[1] as f32, sun_dir[2] as f32).normalize();
         let camera_distance = 30_000.0;
-        let camera_eye = Point3::from(subsolar_direction * camera_distance);
+        let camera_eye =
+            Point3::from((sun_dir_vec + Vector3::new(0.5, -0.6, 0.2)).normalize() * camera_distance);
 
         let mut core_sim = System::builder().build(vernal_time);
         core_sim.simulation_speed = 0;
@@ -66,7 +69,7 @@ impl VernalEquinoxSimulation {
         core_sim.shapes.add_sun_line(
             gui::model::FrameMode::Eci,
             [sun_dir[0] as f32, sun_dir[1] as f32, sun_dir[2] as f32],
-            earth_radius * 3.0,
+            earth_radius * 1.6,
         );
 
         // Key geographic points on the surface

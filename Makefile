@@ -42,3 +42,8 @@ screenshots: $(SCREENSHOTS)
 
 $(SCREENSHOT_DIR)/%.png: examples/%/src/main.rs examples/%/Cargo.toml gui/src/screenshot.rs
 	cargo run -q -p $(notdir $*) -- --screenshot=$@
+
+# The main simulation defaults to the low-res Earth texture; use the
+# high-resolution one for the README capture instead.
+$(SCREENSHOT_DIR)/simulation.png: examples/simulation/src/main.rs examples/simulation/Cargo.toml gui/src/screenshot.rs
+	cargo run -q -p simulation -- --high-res --screenshot=$@

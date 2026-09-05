@@ -46,8 +46,10 @@ impl MoonPhasesSimulation {
         let moon_dist_km =
             Vector3::new(moon_pos[0] as f32, moon_pos[1] as f32, moon_pos[2] as f32).norm();
 
-        // Camera from above to see both Sun and Moon directions
-        let camera_eye = Point3::new(0.0, 0.0, 80_000.0);
+        // Camera from above to see both Sun and Moon directions. Close enough
+        // that Earth stays legible while both direction lines (and their
+        // labels) still fit inside the frame.
+        let camera_eye = Point3::new(0.0, 0.0, 34_000.0);
 
         let mut core_sim = System::builder().build(full_moon_time);
         core_sim.simulation_speed = 0;
@@ -55,17 +57,17 @@ impl MoonPhasesSimulation {
         let earth_radius = gui::model::system::EARTH_RADIUS_KM;
 
         // ECI frame
-        core_sim.shapes.add_eci_frame(earth_radius * 2.0);
+        core_sim.shapes.add_eci_frame(earth_radius * 1.2);
 
         // Sun direction line
         core_sim.shapes.add_sun_line(
             gui::model::FrameMode::Eci,
             [sun_dir[0] as f32, sun_dir[1] as f32, sun_dir[2] as f32],
-            earth_radius * 4.0,
+            earth_radius * 1.6,
         );
 
         // Earth-Moon line
-        let moon_line_len = earth_radius * 4.0;
+        let moon_line_len = earth_radius * 1.6;
         core_sim.shapes.add_line(
             gui::model::FrameMode::Eci,
             [0.0, 0.0, 0.0],

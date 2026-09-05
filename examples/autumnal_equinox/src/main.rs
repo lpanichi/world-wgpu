@@ -15,7 +15,7 @@ use gui::viewer::{CameraControl, subscription};
 use iced::mouse;
 use iced::widget::{column, container, shader, text};
 use iced::{Element, Length};
-use nalgebra::Point3;
+use nalgebra::{Point3, Vector3};
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -33,7 +33,7 @@ struct EquinoxSimulation {
 
 impl EquinoxSimulation {
     fn new() -> Self {
-        // September 21, 2025 12:00 UTC — approximate autumnal solstice
+        // September 22, 2025 12:00 UTC — approximate autumnal equinox
         let equinox_time = Utc.with_ymd_and_hms(2025, 9, 22, 12, 0, 0).unwrap();
         let (day, hour) = Astral::datetime_to_day_hour(&equinox_time);
 
@@ -41,8 +41,13 @@ impl EquinoxSimulation {
         let declination = Astral::solar_declination_deg(day);
         let sun_dir = Astral::sun_inertial_position(day, hour);
 
-        // Camera from above-side to see the tilt
-        let camera_eye = Point3::new(0.0, -25_000.0, 15_000.0);
+        // Camera looks from roughly the Sun direction, so the sunlit hemisphere
+        // faces the viewer. Nudged slightly off-axis so the Sun-direction
+        // line's label doesn't sit right on the camera's line of sight.
+        let sun_dir_vec =
+            Vector3::new(sun_dir[0] as f32, sun_dir[1] as f32, sun_dir[2] as f32).normalize();
+        let camera_eye =
+            Point3::from((sun_dir_vec + Vector3::new(0.15, -0.2, 0.05)).normalize() * 30_000.0);
 
         let mut core_sim = System::builder().build(equinox_time);
         core_sim.simulation_speed = 0;
@@ -57,7 +62,7 @@ impl EquinoxSimulation {
         core_sim.shapes.add_sun_line(
             gui::model::FrameMode::Eci,
             [sun_dir[0] as f32, sun_dir[1] as f32, sun_dir[2] as f32],
-            earth_radius * 3.0,
+            earth_radius * 1.6,
         );
 
         // Subsolar point on surface
@@ -108,7 +113,7 @@ impl EquinoxSimulation {
         };
 
         let validation_info = format!(
-            "SUMMER SOLSTICE VALIDATION — Day {} ({}) | \
+            "AUTUMNAL EQUINOX VALIDATION — Day {} ({}) | \
              Declination: {:.4}° (expect ≈+0.00°) | \
              Subsolar: ({:.2}°, {:.2}°) | \
              Sun ECI Z: {:.4} (positive = north tilt)",
