@@ -163,6 +163,15 @@ impl Astral {
         (gmst * 15.0_f64).to_radians()
     }
 
+    /// Earth's rotation rate in radians per second, derived from the same sidereal rate
+    /// `earth_rotation_angle` advances at.
+    ///
+    /// Lets callers step the Earth's orientation forward or back from a known instant
+    /// (ground tracks, swath corridors) without re-deriving the calendar.
+    pub fn earth_rotation_rate_rad_per_s() -> f64 {
+        (constants::GMST_RATE_HOURS_PER_DAY * 15.0).to_radians() / 86_400.0
+    }
+
     /// Earth orientation rotation matrix from ECEF to ECI (3x3).
     pub fn earth_orientation_matrix(day_of_year: u32, hour: f64) -> [[f64; 3]; 3] {
         let theta = Self::earth_rotation_angle(day_of_year, hour);
@@ -213,23 +222,31 @@ impl Astral {
 
     /// Compute the subsolar point as (latitude_deg, longitude_deg) for a given day-of-year and hour UTC.
     ///
-    /// Simplified model for visualization and selected test case: at Vernal Equinox approximately
-    /// latitude = solar declination and longitude = (hour - 12) * 15.
+    /// Derived from the same Sun model that lights the globe, so the Earth-center-to-subsolar
+    /// radial lands exactly on the drawn Sun direction: latitude is the Sun's declination and
+    /// longitude its right ascension measured from the Greenwich meridian. Both therefore carry
+    /// the true-Sun terms, including the equation of time (up to ~4 deg) that a mean-sun
+    /// `(12 - hour) * 15` cannot express.
     pub fn subsolar_point(day_of_year: u32, hour: f64) -> (f64, f64) {
-        let nominal = (day_of_year as f64 - 1.0) / 365.0;
-        let decl = 23.44_f64.to_radians() * (2.0 * std::f64::consts::PI * (nominal - 0.218)).sin();
+        let sun = Self::sun_inertial_position(day_of_year, hour);
+        let right_ascension = sun[1].atan2(sun[0]).to_degrees();
+        let declination = sun[2].clamp(-1.0, 1.0).asin().to_degrees();
+        let gmst = Self::earth_rotation_angle(day_of_year, hour).to_degrees();
 
-        let lat = decl.to_degrees();
-        let lon = ((hour - 12.0) * 15.0 + 180.0).rem_euclid(360.0) - 180.0;
+        // The -180 folded into this range reduction undoes the half turn that
+        // `model::geo::lat_lon_to_ecef` adds to put lon=0 on -X, matching the Earth
+        // texture's u origin.
+        let lon = (right_ascension - gmst).rem_euclid(360.0) - 180.0;
 
-        (lat, lon)
+        (declination, lon)
     }
 
-    /// Solar declination in degrees for a given day-of-year.
+    /// Solar declination in degrees for a given day-of-year, taken at 12:00 UTC.
+    ///
+    /// Shares `subsolar_point`'s model so the declination readout and the drawn subsolar
+    /// latitude cannot disagree.
     pub fn solar_declination_deg(day_of_year: u32) -> f64 {
-        let nominal = (day_of_year as f64 - 1.0) / 365.0;
-        let decl = 23.44_f64.to_radians() * (2.0 * std::f64::consts::PI * (nominal - 0.218)).sin();
-        decl.to_degrees()
+        Self::subsolar_point(day_of_year, 12.0).0
     }
 
     /// Convert a `chrono::DateTime<Utc>` to (day_of_year, hour) tuple.
@@ -323,9 +340,11 @@ mod tests {
         assert!(lat.abs() < 1.0, "lat = {lat:.6}");
         assert!(lon.abs() < 5.0, "lon = {lon:.6}");
 
+        // Terminators sit a quarter turn either side of the subsolar meridian, which the
+        // equation of time holds a couple of degrees off Greenwich even at equinox noon.
         let (w, e) = Astral::terminator_longitudes(lon);
-        assert!((w - (-90.0)).abs() < 1e-6);
-        assert!((e - 90.0).abs() < 1e-6);
+        assert!((w - (lon - 90.0)).abs() < 1e-6, "west terminator = {w:.6}");
+        assert!((e - (lon + 90.0)).abs() < 1e-6, "east terminator = {e:.6}");
     }
 
     // --- Comprehensive validation tests using real astronomical data ---
@@ -522,6 +541,52 @@ mod tests {
             lon.abs() < 10.0,
             "Subsolar lon at noon UTC = {lon:.2}°, expected near 0°"
         );
+    }
+
+    #[test]
+    fn test_subsolar_longitude_tracks_utc() {
+        // The subsolar meridian is where solar time is noon, so it sweeps west as UTC runs:
+        // 06:00 UTC puts it over ~90 deg E, 18:00 UTC over ~90 deg W. hour = 12 is the one
+        // value that hides a sign error, so probe every quarter of the day.
+        for (hour, expected) in [(0.0, 180.0), (6.0, 90.0), (12.0, 0.0), (18.0, -90.0)] {
+            let (_, lon) = Astral::subsolar_point(79, hour);
+            let offset = (lon - expected + 180.0).rem_euclid(360.0) - 180.0;
+            assert!(
+                offset.abs() < 5.0,
+                "Subsolar lon at {hour:04.1} h UTC = {lon:.2} deg, expected near {expected} deg"
+            );
+        }
+    }
+
+    #[test]
+    fn test_subsolar_radial_points_at_the_sun() {
+        // What the teaching examples actually draw: the Earth-center-to-subsolar-point radial is
+        // ECEF geometry that the shaders turn into world space with Rz(earth_rotation_angle),
+        // while the Sun line is drawn straight in ECI. The two must coincide at every hour --
+        // that is what makes the marker sit under the Sun. Walks the same chain the renderer
+        // does, so a flipped rotation or a mean-sun longitude both show up here.
+        for day in [1, 79, 172, 265, 355] {
+            for hour in [0.0, 3.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0] {
+                let (lat, lon) = Astral::subsolar_point(day, hour);
+                let ecef = crate::model::geo::lat_lon_to_ecef_f64(lat, lon);
+                let m = Astral::earth_orientation_matrix(day, hour);
+                let eci = [
+                    m[0][0] * ecef[0] + m[0][1] * ecef[1] + m[0][2] * ecef[2],
+                    m[1][0] * ecef[0] + m[1][1] * ecef[1] + m[1][2] * ecef[2],
+                    m[2][0] * ecef[0] + m[2][1] * ecef[1] + m[2][2] * ecef[2],
+                ];
+                let norm = (eci[0] * eci[0] + eci[1] * eci[1] + eci[2] * eci[2]).sqrt();
+
+                let sun = Astral::sun_inertial_position(day, hour);
+                let cos_sep = (eci[0] * sun[0] + eci[1] * sun[1] + eci[2] * sun[2]) / norm;
+                let separation = cos_sep.clamp(-1.0, 1.0).acos().to_degrees();
+
+                assert!(
+                    separation < 0.01,
+                    "Day {day} at {hour:04.1} h UTC: subsolar radial is {separation:.3} deg off the Sun direction"
+                );
+            }
+        }
     }
 
     #[test]

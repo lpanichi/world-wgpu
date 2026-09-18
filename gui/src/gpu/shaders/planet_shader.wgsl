@@ -10,12 +10,15 @@ cloud_shadow_strength: f32,
 }
 @group(1) @binding(0) var<uniform> uniforms: Uniforms;
 
+// ECEF -> world. Rz(+angle): the Earth turns eastward as sidereal time advances.
+// The mat4x4 arguments are COLUMNS, so column 0 is (c, s) and column 1 is
+// (-s, c) -- the transpose of how the rows are usually written.
 fn earth_rotation(angle: f32) -> mat4x4<f32> {
     let c = cos(angle);
     let s = sin(angle);
     return mat4x4<f32>(
-        vec4<f32>(c, -s, 0.0, 0.0),
-        vec4<f32>(s, c, 0.0, 0.0),
+        vec4<f32>(c, s, 0.0, 0.0),
+        vec4<f32>(-s, c, 0.0, 0.0),
         vec4<f32>(0.0, 0.0, 1.0, 0.0),
         vec4<f32>(0.0, 0.0, 0.0, 1.0),
     );

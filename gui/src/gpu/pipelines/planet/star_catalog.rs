@@ -27,13 +27,22 @@ struct StarUniforms {
     _padding: [f32; 3],
 }
 
+/// Distance from the camera at which the star shell is drawn, in km.
+///
+/// Pulled inside the far plane when the camera's range is short, so stars are never clipped
+/// away. Anything that has to line up with the stars -- the constellation figures -- must be
+/// placed with this same value.
+pub fn star_shell_distance(camera: &Camera) -> f32 {
+    if camera.zfar < STAR_DISTANCE_KM {
+        camera.zfar * STAR_DISTANCE_MARGIN
+    } else {
+        STAR_DISTANCE_KM
+    }
+}
+
 impl StarUniforms {
     fn new(camera: &Camera, width: f32, height: f32) -> Self {
-        let star_distance = if camera.zfar < STAR_DISTANCE_KM {
-            camera.zfar * STAR_DISTANCE_MARGIN
-        } else {
-            STAR_DISTANCE_KM
-        };
+        let star_distance = star_shell_distance(camera);
 
         Self {
             view_proj: camera.build_view_projection_matrix().into(),
@@ -276,12 +285,17 @@ struct CatalogEntry {
     mag: Option<f32>,
     ci: Option<f32>,
     proper: String,
+    /// Greek-letter designation as the catalog spells it: "Alp", "Bet", "Gam-1", ...
+    bayer: String,
+    /// Three-letter IAU constellation abbreviation: "Ori", "UMa", ...
+    con: String,
 }
 
 struct Catalog {
     entries: Vec<CatalogEntry>,
     has_mag: bool,
     has_proper: bool,
+    has_designation: bool,
 }
 
 fn parse_catalog() -> Catalog {
@@ -293,6 +307,7 @@ fn parse_catalog() -> Catalog {
             entries: Vec::new(),
             has_mag: false,
             has_proper: false,
+            has_designation: false,
         };
     }
 
@@ -308,6 +323,7 @@ fn parse_catalog() -> Catalog {
                 entries: Vec::new(),
                 has_mag: false,
                 has_proper: false,
+                has_designation: false,
             };
         }
     };
@@ -321,6 +337,8 @@ fn parse_catalog() -> Catalog {
     let mag_idx = idx("mag");
     let ci_idx = idx("ci");
     let proper_idx = idx("proper");
+    let bayer_idx = idx("bayer");
+    let con_idx = idx("con");
 
     let mut entries = Vec::new();
 
@@ -347,7 +365,9 @@ fn parse_catalog() -> Catalog {
             None
         };
 
-        let mag = mag_idx.and_then(|i| record.get(i)).and_then(|v| v.parse::<f32>().ok());
+        let mag = mag_idx
+            .and_then(|i| record.get(i))
+            .and_then(|v| v.parse::<f32>().ok());
         let ci = ci_idx
             .and_then(|i| record.get(i))
             .and_then(|v| v.parse::<f32>().ok());
@@ -355,12 +375,19 @@ fn parse_catalog() -> Catalog {
             .map(|i| record.get(i).unwrap_or("").trim().to_string())
             .unwrap_or_default();
 
+        let field = |i: Option<usize>| {
+            i.map(|i| record.get(i).unwrap_or("").trim().to_string())
+                .unwrap_or_default()
+        };
+
         entries.push(CatalogEntry {
             ra_rad,
             dec_rad,
             mag,
             ci,
             proper,
+            bayer: field(bayer_idx),
+            con: field(con_idx),
         });
     }
 
@@ -368,6 +395,7 @@ fn parse_catalog() -> Catalog {
         entries,
         has_mag: mag_idx.is_some(),
         has_proper: proper_idx.is_some(),
+        has_designation: bayer_idx.is_some() && con_idx.is_some(),
     }
 }
 
@@ -434,6 +462,45 @@ fn color_from_bv(bv: f32) -> [f32; 3] {
     } else {
         [1.0, 0.72, 0.52]
     }
+}
+
+/// Unit ECI direction of the brightest catalog star for each (constellation, Bayer)
+/// designation requested, in the order the keys were given.
+///
+/// One pass over the catalog for the whole batch. Designations the catalog does not carry
+/// come back as `None` rather than failing the lot. Where a designation appears more than
+/// once -- the components of a double, say -- the brightest wins, which is the one the star
+/// field draws and therefore the one a figure should join.
+pub fn resolve_designations(keys: &[(&str, &str)]) -> Vec<Option<[f32; 3]>> {
+    let catalog = star_catalog();
+    if !catalog.has_designation {
+        warn!("Star catalog missing bayer/con columns");
+        return vec![None; keys.len()];
+    }
+
+    let mut best: Vec<Option<(f32, [f32; 3])>> = vec![None; keys.len()];
+
+    for entry in &catalog.entries {
+        if entry.bayer.is_empty() || entry.con.is_empty() {
+            continue;
+        }
+        let (Some(ra), Some(dec)) = (entry.ra_rad, entry.dec_rad) else {
+            continue;
+        };
+        let mag = entry.mag.unwrap_or(99.0);
+
+        for (slot, (con, bayer)) in best.iter_mut().zip(keys) {
+            if entry.con != *con || entry.bayer != *bayer {
+                continue;
+            }
+            if slot.is_none_or(|(best_mag, _)| mag < best_mag) {
+                let cos_dec = dec.cos();
+                *slot = Some((mag, [cos_dec * ra.cos(), cos_dec * ra.sin(), dec.sin()]));
+            }
+        }
+    }
+
+    best.into_iter().map(|b| b.map(|(_, dir)| dir)).collect()
 }
 
 /// Retrieves the directions of stars that have proper names in the catalog.

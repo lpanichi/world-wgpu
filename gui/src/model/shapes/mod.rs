@@ -1,14 +1,18 @@
 use super::text_vertices;
 use crate::text::TEXT_VERTEX_FLOATS;
+pub mod celestial_orb;
 pub mod frame;
 pub mod line;
+pub mod local_frame;
 pub mod longitude;
 pub mod orbital_elements;
 pub mod point;
 pub mod sun_path;
 use crate::model::FrameMode;
+pub use celestial_orb::CelestialOrb;
 pub use frame::Frame;
 pub use line::Line;
+pub use local_frame::LocalFrame;
 pub use longitude::LongitudeLine;
 pub use orbital_elements::OrbitalElements;
 pub use point::Point;
@@ -30,11 +34,15 @@ pub struct Shapes {
     pub lines: Vec<Line>,
     pub points: Vec<Point>,
     pub frames: Vec<Frame>,
+    /// Labelled frames at arbitrary origins (a satellite's local orbital frame).
+    pub local_frames: Vec<LocalFrame>,
     pub orbital_elements: Vec<OrbitalElements>,
     /// Meridian (longitude) lines with local-time labels, fixed to the Earth.
     pub longitude_lines: Vec<LongitudeLine>,
     /// Sun's annual path ring (ecliptic) with season markers.
     pub sun_paths: Vec<SunPath>,
+    /// If set, draw the celestial sphere as an orb of that radius around the Earth.
+    pub celestial_orb: Option<CelestialOrb>,
     /// If set, draw an ECI frame with this axis length (fixed in inertial space).
     pub show_eci_frame: Option<f32>,
     /// If set, draw an ECEF frame with this axis length (rotates dynamically with Earth).
@@ -82,7 +90,13 @@ impl Shapes {
     }
 
     #[allow(clippy::type_complexity)]
-    fn generate_shapes(&self) -> (Vec<[f32; 7]>, Vec<(u32, u32)>, Vec<[f32; TEXT_VERTEX_FLOATS]>) {
+    fn generate_shapes(
+        &self,
+    ) -> (
+        Vec<[f32; 7]>,
+        Vec<(u32, u32)>,
+        Vec<[f32; TEXT_VERTEX_FLOATS]>,
+    ) {
         let mut verts: Vec<[f32; 7]> = Vec::new();
         let mut ranges = Vec::new();
         let mut text_quads: Vec<[f32; TEXT_VERTEX_FLOATS]> = Vec::new();
@@ -98,6 +112,10 @@ impl Shapes {
         }
 
         for frame in &self.frames {
+            frame.append_to_mesh(&mut verts, &mut ranges, &mut text_quads);
+        }
+
+        for frame in &self.local_frames {
             frame.append_to_mesh(&mut verts, &mut ranges, &mut text_quads);
         }
 
@@ -138,6 +156,11 @@ impl Shapes {
         // Sun's annual path ring (ecliptic) with season markers.
         for sp in &self.sun_paths {
             sp.append_to_mesh(&mut verts, &mut ranges, &mut text_quads);
+        }
+
+        // Celestial sphere mapped onto an orb around the Earth.
+        if let Some(orb) = &self.celestial_orb {
+            orb.append_to_mesh(&mut verts, &mut ranges, &mut text_quads);
         }
 
         (verts, ranges, text_quads)

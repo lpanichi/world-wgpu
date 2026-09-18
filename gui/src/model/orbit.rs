@@ -112,6 +112,25 @@ impl Orbit {
         [vec.x, vec.y, vec.z]
     }
 
+    /// Inertial velocity (km/s) of a satellite at `elapsed`.
+    ///
+    /// A central difference over `position`, so it automatically follows whatever that
+    /// function does -- including the J2 drift of RAAN and argument of perigee, which an
+    /// analytic two-body expression would miss.
+    pub fn velocity(&self, elapsed: f32, satellite: &Satellite) -> [f32; 3] {
+        // A thousandth of a revolution: small enough that the chord matches the tangent to
+        // well under a degree, large enough to stay clear of f32 cancellation.
+        let dt = (self.period_seconds.abs() / 1000.0).clamp(1e-3, 10.0);
+        let ahead = self.position(elapsed + dt, satellite);
+        let behind = self.position(elapsed - dt, satellite);
+        let scale = 1.0 / (2.0 * dt);
+        [
+            (ahead[0] - behind[0]) * scale,
+            (ahead[1] - behind[1]) * scale,
+            (ahead[2] - behind[2]) * scale,
+        ]
+    }
+
     /// Sample the orbit path centered on `elapsed` so the ring reflects the
     /// J2-drifted RAAN/argp at the current simulation time (otherwise the
     /// drawn track stays at the epoch orientation while satellites precess).

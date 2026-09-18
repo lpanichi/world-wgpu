@@ -473,35 +473,23 @@ pub fn sim_controls_panel<'a, M: Clone + 'a>(
 
 /// Render quality toggles (clouds, atmosphere, night lights, bloom).
 #[allow(clippy::too_many_arguments)]
-pub fn settings_panel<'a, M: Clone + 'a>(
-    clouds: bool,
-    atmosphere: bool,
-    night_lights: bool,
-    bloom: bool,
-    on_toggle_clouds: M,
-    on_toggle_atmosphere: M,
-    on_toggle_night_lights: M,
-    on_toggle_bloom: M,
-) -> Element<'a, M> {
-    let state_button = |active: bool, label: &str, on_click: M| {
-        icon_text_button(
+/// Settings panel: one check/cross button per entry, in the order given.
+///
+/// Takes the toggles as data rather than as a parameter each, so adding an overlay to the
+/// panel is a line at the call site instead of another pair of arguments here.
+pub fn settings_panel<'a, M: Clone + 'a>(toggles: Vec<(&'a str, bool, M)>) -> Element<'a, M> {
+    let mut col = column![].spacing(spacing::CONTROL_GAP);
+
+    for (label, active, on_click) in toggles {
+        col = col.push(icon_text_button(
             if active { icons::CHECK } else { icons::XMARK },
             label,
             ButtonVariant::Default,
             Some(on_click),
-        )
-    };
+        ));
+    }
 
-    panel(
-        Some("Settings"),
-        column![
-            state_button(clouds, "Clouds", on_toggle_clouds),
-            state_button(atmosphere, "Atmosphere", on_toggle_atmosphere),
-            state_button(night_lights, "Night Lights", on_toggle_night_lights),
-            state_button(bloom, "Bloom", on_toggle_bloom),
-        ]
-        .spacing(spacing::CONTROL_GAP),
-    )
+    panel(Some("Settings"), col)
 }
 
 // ---------------------------------------------------------------------------

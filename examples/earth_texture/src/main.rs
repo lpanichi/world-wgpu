@@ -92,7 +92,7 @@ impl EarthTextureSimulation {
         let gulf_pos = lat_lon_to_ecef(0.0, 0.0);
         let gulf_dir_ecef = Vector3::new(gulf_pos[0], gulf_pos[1], gulf_pos[2]).normalize();
         let earth_rotation_angle = core_sim.earth_rotation() as f32;
-        let ecef_to_eci = Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_rotation_angle);
+        let ecef_to_eci = Rotation3::from_axis_angle(&Vector3::z_axis(), earth_rotation_angle);
         let gulf_dir = ecef_to_eci * gulf_dir_ecef;
         let camera_eye = Point3::from(gulf_dir * 20_000.0);
 
@@ -112,6 +112,7 @@ impl EarthTextureSimulation {
             show_atmosphere: false,
             show_night_lights: false,
             show_bloom: false,
+            show_constellations: false,
         };
 
         let validation_info = "EARTH TEXTURE VALIDATION — Ground stations mark known cities. \

@@ -3,7 +3,12 @@ use chrono::{DateTime, Datelike, TimeDelta, Timelike, Utc};
 
 use crate::{
     gpu::pipelines::planet::vertex::{TextureVertex, into_textured_vertex},
-    model::{ground_station::GroundStation, orbit::Orbit, shapes::Shapes},
+    model::{
+        ground_station::GroundStation,
+        lvlh::LvlhFrame,
+        orbit::Orbit,
+        shapes::{LocalFrame, Shapes},
+    },
 };
 use geometry::tesselation::build_sphere;
 use nalgebra::{Matrix3, Matrix4, Rotation3, Unit, Vector3};
@@ -15,6 +20,31 @@ use std::sync::Arc;
 /// mesh, atmosphere, ground stations, geo conversions) and orbital mechanics
 /// (J2 precession, sun-synchronous orbits) always use the same constant.
 pub use crate::astro::constants::EARTH_RADIUS as EARTH_RADIUS_KM;
+
+/// Luni-solar precession of the equinoxes, ~50.3 arcsec **per year**.
+///
+/// Expressed per day, which is the unit `earth_rotation` multiplies by. Writing the
+/// arcsec-to-radian conversion without the `/ DAYS_PER_JULIAN_YEAR` divisor makes this
+/// 365x too fast (~5 deg/year instead of ~0.014 deg/year).
+const PRECESSION_RATE_RAD_PER_DAY: f64 = {
+    const ARCSEC_PER_YEAR: f64 = 50.3;
+    const DAYS_PER_JULIAN_YEAR: f64 = 365.25;
+    (ARCSEC_PER_YEAR / 3600.0) * std::f64::consts::PI / 180.0 / DAYS_PER_JULIAN_YEAR
+};
+
+/// Colors of the drawn LVLH axes, in the order [`LvlhFrame::axes`] returns them.
+const LVLH_AXIS_COLORS: [[f32; 3]; 3] = [
+    crate::model::shapes::COLOR_RED,
+    crate::model::shapes::COLOR_GREEN,
+    crate::model::shapes::COLOR_BLUE,
+];
+
+/// Axis names: along-track (velocity), cross-track (orbit normal), nadir (down).
+const LVLH_AXIS_LABELS: [&str; 3] = ["V", "C", "N"];
+
+/// Ground corridor colors: the sub-satellite track, then the two swath edges.
+const CORRIDOR_TRACK_COLOR: [f32; 3] = [0.35, 0.95, 0.95];
+const CORRIDOR_EDGE_COLOR: [f32; 3] = [0.20, 0.55, 0.70];
 
 #[derive(Debug, Clone)]
 pub struct System {
@@ -37,6 +67,22 @@ pub struct System {
     /// Rendered satellite size relative to Earth radius (exaggerated; real
     /// satellites would be sub-pixel). Defaults to [`Self::SATELLITE_SCALE_FACTOR`].
     pub satellite_scale_factor: f32,
+    /// Draw each satellite's local orbital (LVLH) frame: along-track, cross-track, nadir.
+    pub show_lvlh_frames: bool,
+    /// Length of the drawn LVLH axes in km.
+    pub lvlh_axis_length_km: f32,
+    /// Draw the ground corridor each satellite's field of view sweeps across the Earth.
+    pub show_ground_corridor: bool,
+    /// How much of the corridor to draw, in orbital periods, centred on the current time:
+    /// half of it is ground already covered, half is ground about to be.
+    pub corridor_window_orbits: f32,
+    /// Draw the celestial sphere as a glass orb around the Earth, constellations mapped
+    /// onto it, so you can read off which way a constellation lies.
+    pub show_celestial_orb: bool,
+    /// Radius of that orb in km from the Earth's centre. Arbitrary -- the real sky has no
+    /// distance -- so it is chosen to frame the planet, and is worth raising if the orbits
+    /// on show reach past it.
+    pub celestial_orb_radius_km: f32,
 }
 
 impl System {
@@ -83,11 +129,9 @@ impl System {
         let (day, hour) = self.day_hour();
         let mut angle = Astral::earth_rotation_angle(day, hour);
         if self.precession_enabled {
-            // Luni-solar precession: ~50.3 arcsec/year = ~0.0000243 rad/day
             let days_elapsed =
                 (self.simulation_time - self.start_time).num_seconds() as f64 / 86400.0;
-            let precession_rate_rad_per_day = 50.3 / 3600.0_f64 * std::f64::consts::PI / 180.0;
-            angle += precession_rate_rad_per_day * days_elapsed;
+            angle += PRECESSION_RATE_RAD_PER_DAY * days_elapsed;
         }
         angle
     }
@@ -145,6 +189,14 @@ impl System {
 
     // TODO move this in program
     pub const SATELLITE_SCALE_FACTOR: f32 = 0.005; // relative to Earth radius
+
+    /// Default length of the drawn LVLH axes: long enough to read against the Earth behind
+    /// them, short enough not to be mistaken for an orbit.
+    pub const LVLH_AXIS_LENGTH_KM: f32 = EARTH_RADIUS_KM * 0.15;
+
+    /// Default celestial orb radius: wide enough to enclose the Earth and low orbits with
+    /// room to read the figures, close enough that the whole orb frames in one view.
+    pub const CELESTIAL_ORB_RADIUS_KM: f32 = EARTH_RADIUS_KM * 2.0;
 
     pub fn satellite_models(&self, elapsed: f32) -> Vec<Matrix4<f32>> {
         let scale = Matrix4::new_scaling(EARTH_RADIUS_KM * self.satellite_scale_factor);
@@ -332,6 +384,100 @@ impl System {
         tris
     }
 
+    /// The local orbital frame of every satellite at `elapsed`, in ECI.
+    ///
+    /// Satellites on a degenerate state (no orbit plane) are skipped rather than drawn
+    /// with an arbitrary triad.
+    pub fn lvlh_frames(&self, elapsed: f32) -> Vec<LvlhFrame> {
+        let mut frames = Vec::new();
+        for orbit in &self.orbits {
+            for sat in &orbit.satellites {
+                let position = orbit.position(elapsed, sat);
+                let velocity = orbit.velocity(elapsed, sat);
+                if let Some(frame) = LvlhFrame::from_state(position, velocity) {
+                    frames.push(frame);
+                }
+            }
+        }
+        frames
+    }
+
+    /// The strip of ground each satellite's field of view sweeps, as ECEF polylines.
+    ///
+    /// Three per satellite -- the sub-satellite track and the two swath edges -- sampled
+    /// across [`Self::corridor_window_orbits`] and returned with the color to draw them in.
+    /// The points are ECEF, so they stay pinned to the ground while the Earth turns under
+    /// the orbit; that shearing is the whole point of the picture.
+    pub fn ground_corridor_lines(&self, elapsed: f32) -> Vec<(Vec<[f32; 3]>, [f32; 3])> {
+        const SAMPLES: usize = 240;
+        /// Lifted clear of the surface so the corridor does not z-fight with the globe.
+        const ALTITUDE_KM: f32 = 12.0;
+
+        let mut lines = Vec::new();
+        if self.corridor_window_orbits <= 0.0 {
+            return lines;
+        }
+
+        let earth_rate = Astral::earth_rotation_rate_rad_per_s() as f32;
+        let theta_now = self.earth_rotation() as f32;
+        let radius = EARTH_RADIUS_KM + ALTITUDE_KM;
+
+        for orbit in &self.orbits {
+            let window = orbit.period_seconds.abs() * self.corridor_window_orbits;
+            if window <= 0.0 {
+                continue;
+            }
+            let half_width = orbit.fov_half_angle_deg.to_radians();
+
+            for sat in &orbit.satellites {
+                let mut track = Vec::with_capacity(SAMPLES + 1);
+                let mut left = Vec::with_capacity(SAMPLES + 1);
+                let mut right = Vec::with_capacity(SAMPLES + 1);
+
+                for i in 0..=SAMPLES {
+                    let offset = window * (i as f32 / SAMPLES as f32 - 0.5);
+                    let sample_time = elapsed + offset;
+
+                    let pos = Vector3::from(orbit.position(sample_time, sat));
+                    if pos.norm() < f32::EPSILON {
+                        continue;
+                    }
+
+                    // The Earth's orientation at the sample time, so the point lands on the
+                    // ground that was actually underneath the satellite then.
+                    let theta = theta_now + earth_rate * offset;
+                    let to_ecef = Rotation3::from_axis_angle(&Vector3::z_axis(), -theta);
+                    let sub_point = to_ecef * pos.normalize();
+
+                    // Swing the sub-point sideways about the along-track axis to reach the
+                    // swath edges. Using the ground velocity keeps the edges perpendicular
+                    // to the track rather than to the inertial motion.
+                    let vel = to_ecef * Vector3::from(orbit.velocity(sample_time, sat));
+                    let ground_motion = vel - sub_point * vel.dot(&sub_point);
+                    let side = if ground_motion.norm() > f32::EPSILON {
+                        sub_point.cross(&ground_motion.normalize())
+                    } else {
+                        continue;
+                    };
+
+                    let (sin_w, cos_w) = half_width.sin_cos();
+                    track.push((sub_point * radius).into());
+                    left.push(((sub_point * cos_w + side * sin_w) * radius).into());
+                    right.push(((sub_point * cos_w - side * sin_w) * radius).into());
+                }
+
+                if track.len() < 2 {
+                    continue;
+                }
+                lines.push((track, CORRIDOR_TRACK_COLOR));
+                lines.push((left, CORRIDOR_EDGE_COLOR));
+                lines.push((right, CORRIDOR_EDGE_COLOR));
+            }
+        }
+
+        lines
+    }
+
     pub fn features_line_points(&self, elapsed: f32) -> (Vec<[f32; 3]>, Vec<(u32, u32)>) {
         let mut points = Vec::new();
         let mut ranges = Vec::new();
@@ -365,7 +511,44 @@ impl System {
         Vec<(u32, u32)>,
         Vec<[f32; crate::text::TEXT_VERTEX_FLOATS]>,
     ) {
-        self.shapes.get_all()
+        let (mut verts, mut ranges, mut text_quads) = self.shapes.get_all();
+        let elapsed = self.elapsed_seconds();
+
+        if self.show_lvlh_frames {
+            for frame in self.lvlh_frames(elapsed) {
+                LocalFrame {
+                    frame_mode: crate::model::FrameMode::Eci,
+                    origin: frame.origin,
+                    axes: frame.axes(),
+                    colors: LVLH_AXIS_COLORS,
+                    labels: LVLH_AXIS_LABELS.map(String::from),
+                    axis_length: self.lvlh_axis_length_km,
+                }
+                .append_to_mesh(&mut verts, &mut ranges, &mut text_quads);
+            }
+        }
+
+        if self.show_celestial_orb {
+            crate::model::shapes::CelestialOrb {
+                radius_km: self.celestial_orb_radius_km,
+                ..Default::default()
+            }
+            .append_to_mesh(&mut verts, &mut ranges, &mut text_quads);
+        }
+
+        if self.show_ground_corridor {
+            for (polyline, color) in self.ground_corridor_lines(elapsed) {
+                let start = verts.len() as u32;
+                for point in &polyline {
+                    verts.push([
+                        point[0], point[1], point[2], color[0], color[1], color[2], 1.0,
+                    ]);
+                }
+                ranges.push((start, polyline.len() as u32));
+            }
+        }
+
+        (verts, ranges, text_quads)
     }
 
     /// Compute distance in km between a ground station (by index) and a satellite.
@@ -386,7 +569,7 @@ impl System {
 
         // Rotate ECEF to ECI
         let earth_angle = self.earth_rotation() as f32;
-        let rot = nalgebra::Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_angle);
+        let rot = nalgebra::Rotation3::from_axis_angle(&Vector3::z_axis(), earth_angle);
         let station_eci = rot * station_ecef;
 
         let sat_pos = orbit.position(elapsed, sat);
@@ -471,6 +654,12 @@ impl SimulationBuilder {
             rect_surfaces: Vec::new(),
             shapes: Shapes::new(),
             satellite_scale_factor: System::SATELLITE_SCALE_FACTOR,
+            show_lvlh_frames: false,
+            lvlh_axis_length_km: System::LVLH_AXIS_LENGTH_KM,
+            show_ground_corridor: false,
+            corridor_window_orbits: 1.0,
+            show_celestial_orb: false,
+            celestial_orb_radius_km: System::CELESTIAL_ORB_RADIUS_KM,
         }
     }
 }
@@ -478,6 +667,7 @@ impl SimulationBuilder {
 #[cfg(test)]
 mod tests {
     use crate::model::satellite::Satellite;
+    use chrono::TimeZone;
 
     use super::*;
 
@@ -545,5 +735,155 @@ mod tests {
         assert_eq!(positions.len(), 2);
         assert!(approx_eq(positions[0][0], 6.0));
         assert!(approx_eq(positions[1][0], 8.0));
+    }
+    /// A 700 km circular orbit with a single satellite, for the corridor tests.
+    fn corridor_system(fov_half_angle_deg: f32) -> System {
+        let altitude = EARTH_RADIUS_KM + 700.0;
+        let mut orbit = Orbit::builder(altitude, Orbit::circular_period_seconds(altitude))
+            .inclination(60.0)
+            .add_satellite(Satellite::builder("A").phase_offset(0.0).build())
+            .build();
+        orbit.fov_half_angle_deg = fov_half_angle_deg;
+        System::builder()
+            .add_orbit(orbit)
+            .build(Utc.with_ymd_and_hms(2025, 3, 20, 12, 0, 0).unwrap())
+    }
+
+    #[test]
+    fn precession_advances_fifty_arcsec_per_year() {
+        let epoch = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let mut sim = System::builder().build(epoch);
+        sim.simulation_time = epoch + TimeDelta::seconds((365.25 * 86_400.0) as i64);
+
+        let without = sim.earth_rotation();
+        sim.precession_enabled = true;
+        let with = sim.earth_rotation();
+
+        let arcsec = (with - without).to_degrees() * 3600.0;
+        assert!(
+            (arcsec - 50.3).abs() < 0.1,
+            "one Julian year of precession = {arcsec:.3} arcsec, expected ~50.3"
+        );
+    }
+
+    #[test]
+    fn corridor_track_runs_under_the_satellite() {
+        let sim = corridor_system(20.0);
+        let lines = sim.ground_corridor_lines(0.0);
+        assert_eq!(lines.len(), 3, "track plus two edges");
+
+        // The sample at the middle of the window is the sub-satellite point right now, so
+        // rotating it back into ECI must land on the satellite's own radius vector.
+        let (track, _) = &lines[0];
+        let middle = Vector3::from(track[track.len() / 2]);
+        let to_eci = Rotation3::from_axis_angle(&Vector3::z_axis(), sim.earth_rotation() as f32);
+        let under = (to_eci * middle).normalize();
+
+        let sat = &sim.orbits[0].satellites[0];
+        let above = Vector3::from(sim.orbits[0].position(0.0, sat)).normalize();
+        let separation = under.dot(&above).clamp(-1.0, 1.0).acos().to_degrees();
+        assert!(separation < 0.5, "track is {separation:.3} deg off nadir");
+    }
+
+    #[test]
+    fn corridor_edges_straddle_the_track_by_the_fov() {
+        let half_angle = 20.0;
+        let sim = corridor_system(half_angle);
+        let lines = sim.ground_corridor_lines(0.0);
+        let (track, _) = &lines[0];
+        let (left, _) = &lines[1];
+        let (right, _) = &lines[2];
+
+        for i in [0, track.len() / 2, track.len() - 1] {
+            let centre = Vector3::from(track[i]).normalize();
+            for edge in [Vector3::from(left[i]), Vector3::from(right[i])] {
+                let offset = centre
+                    .dot(&edge.normalize())
+                    .clamp(-1.0, 1.0)
+                    .acos()
+                    .to_degrees();
+                assert!(
+                    (offset - half_angle).abs() < 0.5,
+                    "edge sits {offset:.3} deg from the track, expected {half_angle}"
+                );
+            }
+            // Symmetric about the track, so the two edges are twice the half-angle apart.
+            let span = Vector3::from(left[i])
+                .normalize()
+                .dot(&Vector3::from(right[i]).normalize())
+                .clamp(-1.0, 1.0)
+                .acos()
+                .to_degrees();
+            assert!(
+                (span - 2.0 * half_angle).abs() < 0.5,
+                "swath spans {span:.3} deg"
+            );
+        }
+    }
+
+    #[test]
+    fn corridor_shears_against_the_ground_as_the_earth_turns() {
+        // Half an orbit apart, the ground track must have slipped west by the Earth's own
+        // rotation over that time -- that offset is what makes successive passes miss.
+        let sim = corridor_system(10.0);
+        let (track, _) = &sim.ground_corridor_lines(0.0)[0];
+        let period = sim.orbits[0].period_seconds;
+
+        let first = Vector3::from(track[0]);
+        let last = Vector3::from(track[track.len() - 1]);
+        // Same point in the orbit one period later, so any difference is the Earth turning.
+        let drift = (first.normalize().dot(&last.normalize()))
+            .clamp(-1.0, 1.0)
+            .acos()
+            .to_degrees();
+        let expected =
+            (Astral::earth_rotation_rate_rad_per_s() as f32 * period).to_degrees() % 360.0;
+        assert!(
+            (drift - expected).abs() < 1.0,
+            "ground track drifted {drift:.2} deg over one period, expected {expected:.2}"
+        );
+    }
+
+    #[test]
+    fn lvlh_frames_follow_every_satellite() {
+        let mut sim = corridor_system(10.0);
+        sim.orbits[0]
+            .satellites
+            .push(Satellite::builder("B").phase_offset(1.0).build());
+
+        let frames = sim.lvlh_frames(0.0);
+        assert_eq!(frames.len(), 2);
+
+        for (frame, sat) in frames.iter().zip(&sim.orbits[0].satellites) {
+            let position = Vector3::from(sim.orbits[0].position(0.0, sat));
+            assert!((Vector3::from(frame.origin) - position).norm() < 1e-3);
+            // Nadir points back down the position vector.
+            let down = -position.normalize();
+            assert!((Vector3::from(frame.nadir) - down).norm() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn corridor_and_lvlh_only_reach_the_mesh_when_enabled() {
+        let mut sim = corridor_system(10.0);
+        let (baseline, _, _) = sim.shape_points();
+
+        sim.show_lvlh_frames = true;
+        let (with_frame, _, _) = sim.shape_points();
+        assert!(
+            with_frame.len() > baseline.len(),
+            "LVLH frame added no geometry"
+        );
+
+        sim.show_lvlh_frames = false;
+        sim.show_ground_corridor = true;
+        let (with_corridor, ranges, _) = sim.shape_points();
+        assert!(
+            with_corridor.len() > baseline.len(),
+            "corridor added no geometry"
+        );
+        // Corridor geometry is ECEF, so every added vertex carries the rotate-with-earth flag.
+        assert!(with_corridor[baseline.len()..].iter().all(|v| v[6] == 1.0));
+        assert_eq!(ranges.len(), 3);
     }
 }

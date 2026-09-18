@@ -164,6 +164,7 @@ impl EarthOrbitSimulation {
             show_atmosphere: true,
             show_night_lights: true,
             show_bloom: false,
+            show_constellations: false,
         };
 
         let mut sim = Self {

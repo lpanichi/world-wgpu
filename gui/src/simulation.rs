@@ -37,6 +37,8 @@ pub struct Simulation {
     pub show_atmosphere: bool,
     pub show_night_lights: bool,
     pub show_bloom: bool,
+    /// Draw constellation figures over the star field.
+    pub show_constellations: bool,
 }
 
 impl Simulation {
@@ -222,9 +224,8 @@ impl Simulation {
 
         let elapsed = self.system.elapsed_seconds();
         let earth_rotation_angle = self.system.earth_rotation() as f32;
-        // The WGSL station_shader uses column-major earth_rotation(θ) which evaluates to
-        // x'=cθ·x+sθ·y, y'=-sθ·x+cθ·y — that is Rz(-θ). Negate here to match.
-        let ecef_to_eci = Rotation3::from_axis_angle(&Vector3::z_axis(), -earth_rotation_angle);
+        // Matches the WGSL earth_rotation(θ) in the shaders: Rz(+θ).
+        let ecef_to_eci = Rotation3::from_axis_angle(&Vector3::z_axis(), earth_rotation_angle);
 
         let dot_radius = EARTH_RADIUS_KM * self.system.satellite_scale_factor;
         let satellite_radius = match self.satellite_mode {
@@ -296,6 +297,7 @@ impl<Message> shader::Program<Message> for Simulation {
             show_atmosphere: self.show_atmosphere,
             show_night_lights: self.show_night_lights,
             show_bloom: self.show_bloom,
+            show_constellations: self.show_constellations,
         }
     }
 }
@@ -309,6 +311,7 @@ pub struct Primitive {
     show_atmosphere: bool,
     show_night_lights: bool,
     show_bloom: bool,
+    show_constellations: bool,
 }
 
 impl shader::Primitive for Primitive {
@@ -334,6 +337,7 @@ impl shader::Primitive for Primitive {
             self.show_atmosphere,
             self.show_night_lights,
             self.show_bloom,
+            self.show_constellations,
         );
     }
 

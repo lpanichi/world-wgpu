@@ -99,6 +99,7 @@ impl MoonPhasesSimulation {
             show_atmosphere: false,
             show_night_lights: false,
             show_bloom: false,
+            show_constellations: false,
         };
 
         let validation_info = format!(

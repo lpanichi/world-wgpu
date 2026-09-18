@@ -99,6 +99,10 @@ enum Message {
     ToggleAtmosphere,
     ToggleNightLights,
     ToggleBloom,
+    ToggleConstellations,
+    ToggleCelestialOrb,
+    ToggleLvlhFrames,
+    ToggleGroundCorridor,
     // KPI
     KpiStationIndexInput(String),
     KpiOrbitIndexInput(String),
@@ -296,6 +300,21 @@ impl Textured {
                 self.program.show_night_lights = !self.program.show_night_lights
             }
             Message::ToggleBloom => self.program.show_bloom = !self.program.show_bloom,
+            Message::ToggleConstellations => {
+                self.program.show_constellations = !self.program.show_constellations
+            }
+            Message::ToggleCelestialOrb => {
+                let system = &mut self.program.system;
+                system.show_celestial_orb = !system.show_celestial_orb;
+            }
+            Message::ToggleLvlhFrames => {
+                let system = &mut self.program.system;
+                system.show_lvlh_frames = !system.show_lvlh_frames;
+            }
+            Message::ToggleGroundCorridor => {
+                let system = &mut self.program.system;
+                system.show_ground_corridor = !system.show_ground_corridor;
+            }
             Message::SwitchMode(mode) => {
                 self.panel_mode = mode;
                 self.manager_focus = None;
@@ -916,16 +935,40 @@ impl Textured {
             SidebarTab::Builder => self.builder_panel(),
             SidebarTab::Manager => self.manager_panel(),
             SidebarTab::Kpi => self.kpi_view(),
-            SidebarTab::Settings => settings_panel(
-                self.program.show_clouds,
-                self.program.show_atmosphere,
-                self.program.show_night_lights,
-                self.program.show_bloom,
-                Message::ToggleClouds,
-                Message::ToggleAtmosphere,
-                Message::ToggleNightLights,
-                Message::ToggleBloom,
-            ),
+            SidebarTab::Settings => settings_panel(vec![
+                ("Clouds", self.program.show_clouds, Message::ToggleClouds),
+                (
+                    "Atmosphere",
+                    self.program.show_atmosphere,
+                    Message::ToggleAtmosphere,
+                ),
+                (
+                    "Night Lights",
+                    self.program.show_night_lights,
+                    Message::ToggleNightLights,
+                ),
+                ("Bloom", self.program.show_bloom, Message::ToggleBloom),
+                (
+                    "Celestial Orb",
+                    self.program.system.show_celestial_orb,
+                    Message::ToggleCelestialOrb,
+                ),
+                (
+                    "Sky Figures",
+                    self.program.show_constellations,
+                    Message::ToggleConstellations,
+                ),
+                (
+                    "LVLH Frame",
+                    self.program.system.show_lvlh_frames,
+                    Message::ToggleLvlhFrames,
+                ),
+                (
+                    "Ground Corridor",
+                    self.program.system.show_ground_corridor,
+                    Message::ToggleGroundCorridor,
+                ),
+            ]),
         };
 
         // --- Compose sidebar ---
@@ -1247,6 +1290,7 @@ impl Default for Textured {
                 show_atmosphere: true,
                 show_night_lights: true,
                 show_bloom: true,
+                show_constellations: false,
             },
             panes,
             focus: Some(root_pane),

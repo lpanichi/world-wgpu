@@ -11,7 +11,9 @@ use crate::gpu::pipelines::planet::{
     bloom::BloomPipeline,
     buffer::write_or_grow,
     camera::Camera,
+    celestial_orb::CelestialOrbPipeline,
     clear_quad::ClearQuadPipeline,
+    constellations::ConstellationsPipeline,
     consts::{DEPTH_FORMAT, HDR_FORMAT, MSAA_SAMPLE_COUNT},
     milky_way::MilkyWayPipeline,
     moon::MoonPipeline,
@@ -37,6 +39,8 @@ pub struct Pipelines {
     uniforms_bind_group: BindGroup,
     planet: PlanetPipeline,
     star_catalog: StarCatalogPipeline,
+    constellations: ConstellationsPipeline,
+    celestial_orb: CelestialOrbPipeline,
     milky_way: MilkyWayPipeline,
     shapes: ShapesPipeline,
     text: TextPipeline,
@@ -59,6 +63,8 @@ pub struct Pipelines {
     show_atmosphere: bool,
     show_night_lights: bool,
     show_bloom: bool,
+    show_constellations: bool,
+    show_celestial_orb: bool,
     initialized: bool,
 }
 
@@ -107,6 +113,8 @@ impl Pipelines {
         let shapes = ShapesPipeline::new(device, HDR_FORMAT, &uniform_bind_group_layout, MSAA_SAMPLE_COUNT);
         let text = TextPipeline::new(device, queue, HDR_FORMAT, MSAA_SAMPLE_COUNT);
         let star_catalog = StarCatalogPipeline::new(device, queue, HDR_FORMAT);
+        let constellations = ConstellationsPipeline::new(device, queue, HDR_FORMAT);
+        let celestial_orb = CelestialOrbPipeline::new(device, queue, HDR_FORMAT);
         let milky_way = MilkyWayPipeline::new(device, queue, HDR_FORMAT);
 
         let satellite = SatellitePipeline::new(device, queue, HDR_FORMAT);
@@ -123,6 +131,8 @@ impl Pipelines {
             uniforms_bind_group,
             planet,
             star_catalog,
+            constellations,
+            celestial_orb,
             milky_way,
             shapes,
             text,
@@ -145,6 +155,8 @@ impl Pipelines {
             show_atmosphere: true,
             show_night_lights: true,
             show_bloom: true,
+            show_constellations: false,
+            show_celestial_orb: false,
             initialized: false,
         }
     }
@@ -178,6 +190,7 @@ show_clouds: bool,
     show_atmosphere: bool,
     show_night_lights: bool,
     show_bloom: bool,
+    show_constellations: bool,
 ) {
         let width = viewport.physical_width();
         let height = viewport.physical_height();
@@ -185,6 +198,7 @@ show_clouds: bool,
         self.show_atmosphere = show_atmosphere;
         self.show_night_lights = show_night_lights;
         self.show_bloom = show_bloom;
+        self.show_constellations = show_constellations;
 
         self.initialize_system(device, queue, system);
 
@@ -248,6 +262,12 @@ show_clouds: bool,
 
         self.star_catalog
             .prepare(queue, camera, width as f32, height as f32);
+        self.constellations.prepare(queue, camera);
+        // The orb is a property of the scene rather than a render setting, so it rides on
+        // the system rather than on another prepare() argument.
+        self.show_celestial_orb = system.show_celestial_orb;
+        self.celestial_orb
+            .prepare(queue, camera, system.celestial_orb_radius_km);
 
         // Milky Way band depends only on the camera (ray reconstruction).
         self.milky_way.prepare(queue, camera);
@@ -397,6 +417,11 @@ show_clouds: bool,
 
             self.star_catalog.render(&mut render_pass);
 
+            // Figures go over the stars they join, and like them never write depth.
+            if self.show_constellations {
+                self.constellations.render(&mut render_pass);
+            }
+
             self.planet
                 .render(&mut render_pass, &self.uniforms_bind_group);
 
@@ -443,6 +468,11 @@ show_clouds: bool,
             // additive scattering overlays the sun near the limb.
             if self.show_atmosphere {
                 self.atmosphere.render(&mut render_pass);
+            }
+
+            // Outermost shell in the scene, so it goes last and tints everything inside it.
+            if self.show_celestial_orb {
+                self.celestial_orb.render(&mut render_pass);
             }
         }
 
